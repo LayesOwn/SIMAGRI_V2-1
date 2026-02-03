@@ -1,0 +1,39 @@
+*SOILS: SENEGAL SOIL DATABASE
+
+@SITE        COUNTRY         LAT     LONG SCS FAMILY
+SN_0840080   SENEGAL        -99     -99   -99
+
+*DESCRIPTION
+Soil profile for rice cultivation in Senegal, as defined in experiment file.
+
+*SOIL ANALYSIS
+@SALB SLU1  SLDR  SLRO  SLNF  SLPF  SMHB  SMPX  SMKE
+  0.13  6.0   0.6   85   1.0   -99   -99   -99
+
+*SOIL LAYERS
+@SLB  SLDES  SLOC  SLCL  SLSI  SLSA  SLHC  SLBD  SLDP  SLPA  SLFC  SLMH
+  20   -99   -99   -99   -99   -99   -99   -99    20   -99   -99   -99
+  40   -99   -99   -99   -99   -99   -99   -99    40   -99   -99   -99
+  60   -99   -99   -99   -99   -99   -99   -99    60   -99   -99   -99
+  80   -99   -99   -99   -99   -99   -99   -99    80   -99   -99   -99
+ 100   -99   -99   -99   -99   -99   -99   -99   100   -99   -99   -99
+ 120   -99   -99   -99   -99   -99   -99   -99   120   -99   -99   -99
+
+*HYDRAULIC PARAMETERS
+@SLB  SATC  KSAT  LL15  DUL  SAT
+  20   -99   -99   -99   -99   -99
+  40   -99   -99   -99   -99   -99
+  60   -99   -99   -99   -99   -99
+  80   -99   -99   -99   -99   -99
+ 100   -99   -99   -99   -99   -99
+ 120   -99   -99   -99   -99   -99
+
+*PHYSICAL PROPERTIES
+@SLB  SCEC  PH  EC  OC
+  20   -99   -99  -99  -99
+  40   -99   -99  -99  -99
+  60   -99   -99  -99  -99
+  80   -99   -99  -99  -99
+ 100   -99   -99  -99  -99
+ 120   -99   -99  -99  -99
+

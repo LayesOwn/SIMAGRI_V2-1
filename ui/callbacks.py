@@ -35,7 +35,23 @@ from domain.dssat.run_dssat import run_dssat_simulation
 # ==========================================================
 # CONFIGURATION DES CHEMINS
 # ==========================================================
-BASE_DIR = Path(__file__).resolve().parents[2]  # Remonte à la racine du projet
+# Depuis ui/callbacks.py (ui/ -> SIMAGRI_V3/), on remonte 2 niveaux
+_temp = Path(__file__).resolve().parents[2]
+
+# Assurer que BASE_DIR pointe à SIMAGRI_V3
+if _temp.name == "SIMAGRI_V3":
+    BASE_DIR = _temp
+elif _temp.name == "simagri":
+    # On a remonté trop haut, aller dans SIMAGRI_V3
+    BASE_DIR = _temp / "SIMAGRI_V3"
+else:
+    # Default
+    BASE_DIR = _temp
+
+print(f"✅ BASE_DIR = {BASE_DIR}")
+print(f"   Existe ? {BASE_DIR.exists()}")
+print(f"   dssat/ existe ? {(BASE_DIR / 'dssat').exists()}")
+print(f"   Fichiers .WTH : {len(list((BASE_DIR / 'dssat').glob('*.WTH')))}")  # Remonte à la racine du projet
 GEOJSON_PATH = BASE_DIR / "data" / "geojson" / "senegal_departments.json"
 
 
@@ -623,6 +639,10 @@ def register_callbacks(app):
                     raise FileNotFoundError("Fichier X non généré")
 
                 print(f"  ✅ Fichier X créé : {x_path.name}")
+                print(f"  DEBUG BASE_DIR : {BASE_DIR}")
+                print(f"  DEBUG x_path : {x_path}")
+                print(f"  DEBUG x_path.exists() : {x_path.exists()}")
+                print(f"  DEBUG output_dir : {str(BASE_DIR / 'dssat' / 'exp')}")
 
                 # --- SNX file ---
                 snx_path = write_snx_file(
