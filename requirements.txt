@@ -1,0 +1,34 @@
+# ====================================================
+# SIMAGRI v2 - Requirements
+# Outil d'aide à la décision agricole basé sur DSSAT
+# ====================================================
+
+# --- Framework Web
+dash==2.15.0
+dash-bootstrap-components==1.5.0
+dash-leaflet==1.0.11
+
+# --- Data Science
+pandas==2.0.3
+numpy==1.24.3
+scipy==1.11.1
+
+# --- Server
+gunicorn==21.2.0
+
+# --- Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+
+# ====================================================
+# NOTES D'INSTALLATION :
+# ====================================================
+# 
+# Installer toutes les dépendances :
+#   pip install -r requirements.txt
+#
+# Pour Windows avec DSSAT :
+#   Les fichiers DSSAT doivent être dans C:\DSSAT47\
+#   (à adapter selon votre installation)
+#
+# ====================================================

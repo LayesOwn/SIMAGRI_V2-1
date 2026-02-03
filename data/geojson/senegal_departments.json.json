@@ -1,0 +1,557 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Louga",
+        "NAME": "Louga",
+        "region": "Louga"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.22, 15.62]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ranerou",
+        "NAME": "Ranerou",
+        "region": "Matam"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-13.97, 15.30]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Bambey",
+        "NAME": "Bambey",
+        "region": "Diourbel"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.47, 14.70]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Thiès",
+        "NAME": "Thiès",
+        "region": "Thiès"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.95, 14.80]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Bakel",
+        "NAME": "Bakel",
+        "region": "Tambacounda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-12.47, 14.90]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Kaolack",
+        "NAME": "Kaolack",
+        "region": "Kaolack"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.07, 14.15]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Diourbel",
+        "NAME": "Diourbel",
+        "region": "Diourbel"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.23, 14.65]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Fatick",
+        "NAME": "Fatick",
+        "region": "Fatick"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.41, 14.34]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mbacké",
+        "NAME": "Mbacké",
+        "region": "Diourbel"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.91, 14.80]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Kébémer",
+        "NAME": "Kébémer",
+        "region": "Louga"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.47, 15.37]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Linguère",
+        "NAME": "Linguère",
+        "region": "Louga"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.12, 15.39]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Saint-Louis",
+        "NAME": "Saint-Louis",
+        "region": "Saint-Louis"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.46, 16.05]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Dagana",
+        "NAME": "Dagana",
+        "region": "Saint-Louis"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.51, 16.51]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Podor",
+        "NAME": "Podor",
+        "region": "Saint-Louis"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-14.96, 16.65]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Matam",
+        "NAME": "Matam",
+        "region": "Matam"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-13.26, 15.66]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Kanel",
+        "NAME": "Kanel",
+        "region": "Matam"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-13.15, 15.50]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Tambacounda",
+        "NAME": "Tambacounda",
+        "region": "Tambacounda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-13.67, 13.77]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Goudiry",
+        "NAME": "Goudiry",
+        "region": "Tambacounda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-12.72, 14.20]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Koumpentoum",
+        "NAME": "Koumpentoum",
+        "region": "Tambacounda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-14.00, 14.15]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Kédougou",
+        "NAME": "Kédougou",
+        "region": "Kédougou"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-12.18, 12.56]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Salemata",
+        "NAME": "Salemata",
+        "region": "Kédougou"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-12.70, 12.82]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Saraya",
+        "NAME": "Saraya",
+        "region": "Kédougou"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-11.85, 12.75]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Kolda",
+        "NAME": "Kolda",
+        "region": "Kolda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-14.95, 12.89]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Vélingara",
+        "NAME": "Vélingara",
+        "region": "Kolda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-14.00, 12.88]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Médina Yoro Foulah",
+        "NAME": "Médina Yoro Foulah",
+        "region": "Kolda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-14.35, 13.03]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Sédhiou",
+        "NAME": "Sédhiou",
+        "region": "Sédhiou"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.56, 12.71]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Bounkiling",
+        "NAME": "Bounkiling",
+        "region": "Sédhiou"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.70, 12.80]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Goudomp",
+        "NAME": "Goudomp",
+        "region": "Sédhiou"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.97, 12.58]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Ziguinchor",
+        "NAME": "Ziguinchor",
+        "region": "Ziguinchor"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.27, 12.56]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Bignona",
+        "NAME": "Bignona",
+        "region": "Ziguinchor"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.23, 12.81]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Oussouye",
+        "NAME": "Oussouye",
+        "region": "Ziguinchor"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.55, 12.48]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Dakar",
+        "NAME": "Dakar",
+        "region": "Dakar"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-17.50, 14.67]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Pikine",
+        "NAME": "Pikine",
+        "region": "Dakar"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-17.17, 14.75]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Guédiawaye",
+        "NAME": "Guédiawaye",
+        "region": "Dakar"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-17.23, 14.66]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Rufisque",
+        "NAME": "Rufisque",
+        "region": "Dakar"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-17.27, 14.67]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Keur Massar",
+        "NAME": "Keur Massar",
+        "region": "Dakar"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-17.08, 14.60]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Gossas",
+        "NAME": "Gossas",
+        "region": "Fatick"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.97, 13.88]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Guinguineo",
+        "NAME": "Guinguineo",
+        "region": "Kaolack"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.43, 13.59]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Kaffrine",
+        "NAME": "Kaffrine",
+        "region": "Kaffrine"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.53, 14.09]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Foundiougne",
+        "NAME": "Foundiougne",
+        "region": "Fatick"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-14.88, 13.74]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Malem-Hodar",
+        "NAME": "Malem-Hodar",
+        "region": "Kaolack"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.39, 13.44]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Mbour",
+        "NAME": "Mbour",
+        "region": "Thiès"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.71, 14.39]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Medina Yorofoula",
+        "NAME": "Medina Yorofoula",
+        "region": "Kolda"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-14.35, 13.03]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Bierkelane",
+        "NAME": "Bierkelane",
+        "region": "Kaffrine"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.24, 14.32]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Nioro du Rip",
+        "NAME": "Nioro du Rip",
+        "region": "Kaolack"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-16.24, 13.74]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Koungheul",
+        "NAME": "Koungheul",
+        "region": "Kaffrine"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-15.65, 13.99]
+      }
+    }
+  ]
+}
