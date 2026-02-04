@@ -30,28 +30,38 @@ from domain.decision import evaluate_scenarios
 from domain.dssat.write_xfile import write_x_file
 from domain.dssat.write_snx import write_snx_file
 from domain.dssat.run_dssat import run_dssat_simulation
-
+import os
+from pathlib import Path
 
 # ==========================================================
 # CONFIGURATION DES CHEMINS
 # ==========================================================
 # Depuis ui/callbacks.py (ui/ -> SIMAGRI_V3/), on remonte 2 niveaux
-_temp = Path(__file__).resolve().parents[2]
 
-# Assurer que BASE_DIR pointe à SIMAGRI_V3
-if _temp.name == "SIMAGRI_V3":
-    BASE_DIR = _temp
-elif _temp.name == "simagri":
-    # On a remonté trop haut, aller dans SIMAGRI_V3
-    BASE_DIR = _temp / "SIMAGRI_V3"
+
+# Déterminer BASE_DIR selon l'environnement
+if os.getenv('SIMAGRI_ENV') == 'docker':
+    # En Docker, on est déjà dans /app
+    BASE_DIR = Path('/app')
 else:
-    # Default
-    BASE_DIR = _temp
+    # En local (Windows)
+    _temp = Path(__file__).resolve().parents[2]
+    
+    # Assurer que BASE_DIR pointe à SIMAGRI_V3
+    if _temp.name == "SIMAGRI_V3":
+        BASE_DIR = _temp
+    elif _temp.name == "simagri":
+        # On a remonté trop haut, aller dans SIMAGRI_V3
+        BASE_DIR = _temp / "SIMAGRI_V3"
+    else:
+        # Default
+        BASE_DIR = _temp
 
 print(f"✅ BASE_DIR = {BASE_DIR}")
 print(f"   Existe ? {BASE_DIR.exists()}")
 print(f"   dssat/ existe ? {(BASE_DIR / 'dssat').exists()}")
-print(f"   Fichiers .WTH : {len(list((BASE_DIR / 'dssat').glob('*.WTH')))}")  # Remonte à la racine du projet
+print(f"   Fichiers .WTH : {len(list((BASE_DIR / 'dssat').glob('*.WTH')))}")
+
 GEOJSON_PATH = BASE_DIR / "data" / "geojson" / "senegal_departments.json"
 
 
