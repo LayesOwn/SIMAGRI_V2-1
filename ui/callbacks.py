@@ -655,16 +655,24 @@ def register_callbacks(app):
                 print(f"  DEBUG output_dir : {str(BASE_DIR / 'dssat' / 'exp')}")
 
                 # --- SNX file ---
-                snx_path = write_snx_file(
+                from pathlib import Path
+
+                # ...
+
+                # Génération SNX
+                snx_output_dir = Path("/app/dssat/snx")
+                snx_output_dir.mkdir(parents=True, exist_ok=True)
+
+                try:
+                    snx_path = Path(write_snx_file(
                     scenario,
                     x_path.name,
-                    output_dir=str(BASE_DIR / "dssat" / "snx")
-                )
-
-                if not snx_path.exists():
-                    raise FileNotFoundError("Fichier SNX non généré")
-
-                print(f"  ✅ Fichier SNX créé : {snx_path.name}")
+                    output_dir=str(snx_output_dir)
+                ))
+                    print(f"✅ Fichier SNX créé : {snx_path}")
+                except Exception as e:
+                    print(f"❌ Erreur SNX : {e}")
+                    raise
 
                 # ===============================
                 # 4️⃣ Lancer DSSAT

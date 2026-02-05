@@ -1,64 +1,65 @@
-*EXP.DETAILS: SIMAGRI
+*EXP.DETAILS: SIMAGRI Mil Experiment
 
 *GENERAL
 @PEOPLE
-SIMAGRI
+-99
 @ADDRESS
-Senegal
+-99
 @SITE
-Senegal
-@ PAREA  PRNO  PLEN  PLDR  PLSP  PLAY HAREA  HRNO  HLEN  HARM.........
+-99
+@ PAREA  PRNO  PLEN  PLDR  PLSP  PLAY HAREA  HRNO  HLEN  HARM
     -99   -99   -99   -99   -99   -99   -99   -99   -99   -99
 
 *TREATMENTS                        -------------FACTOR LEVELS------------
 @N R O C TNAME.................... CU FL SA IC MP MI MF MR MC MT ME MH SM
-  1 1 0 0 SIMAGRI                    1  1  0  1  1  0  0  0  0  0  0  0  1
+ 1 1 0 0 SIMAGRI_ML             1  1  0  1  1  0  0  0  0  0  0  0  1
 
 *CULTIVARS
 @C CR INGENO CNAME
-  1 ML IB0066 SIMAGRI
+ 1 ML IB0066 SIMAGRI
 
 *FIELDS
 @L ID_FIELD WSTA....  FLSA  FLOB  FLDT  FLDD  FLDS  FLST SLTX  SLDP  ID_SOIL    FLNAME
-  1 KAOL0001 KAOL       -99   -99 DR000   -99   -99     0   -99    50  SN-N15Rain -99
+ 1 SIMAG001 SIMAG      -99   -99 DR000   -99   -99     0 SL      50  SN-N15Rain SIMAGRI
 @L ...........XCRD ...........YCRD .....ELEV .............AREA .SLEN .FLWR .SLAS FLHST FHDUR
-  1            -99             -99       -99               -99   -99   -99   -99   -99   -99
+ 1            14.7          -16.48        30               -99   -99   -99   -99   -99   -99
 
 *INITIAL CONDITIONS
 @C   PCR ICDAT  ICRT  ICND  ICRN  ICRE  ICWD ICRES ICREN ICREP ICRIP ICRID ICNAME
-  1    ML 81168   -99     0     1     1   -99     0     0     0   100    15 -99
+ 1    ML 81168   -99     0     1     1   -99     0     0     0   100    15 -99
 @C  ICBL  SH2O  SNH4  SNO3
-  1    20  .147    .6   1.5
-  1    30  .197    .6   1.5
+ 1    20  .147    .6   1.5
+ 1    30  .197    .6   1.5
 
 *PLANTING DETAILS
 @P PDATE EDATE  PPOP  PPOE  PLME  PLDS  PLRS  PLRD  PLDP  PLWT  PAGE  PENV  PLPH  SPRL                        PLNAME
-  1 26166   -99      5     6     S     R    60     0     5   -99   -99   -99   -99   -99                        FIELD
+ 1 2026-06-15 -99     6     6     S     R    60     0     5   -99   -99   -99   -99   -99                        FIELD
 
 *FERTILIZERS (INORGANIC)
 @F FDATE  FMCD  FACD  FDEP  FAMN  FAMP  FAMK  FAMC  FAMO  FOCD FERNAME
-  1     1 FE005 AP002     4   -99   -99   -99   -99   -99   -99 -99
+ 1     1 FE005 AP002     4   -99   -99   -99   -99   -99   -99 -99
 
 *SIMULATION CONTROLS
-@N GENERAL     NYERS NREPS START SDATE RSEED SNAME.................... SMODEL
-  1 GE              1     1     S 81168  2150 DEFAULT SIMULATION CONTR  MLCER
+@N GENERAL     NYERS NREPS START SDATE RSEED SCE_1.................... SMODEL
+ 1 GE              1     1     S 81168  2150 SCE_1 SIMULATION CONTR  MLCER
 @N OPTIONS     WATER NITRO SYMBI PHOSP POTAS DISES  CHEM  TILL   CO2
-  1 OP              Y     Y     Y     N     N     N     N     N     D
+ 1 OP              Y     Y     Y     N     N     N     N     N     D
 @N METHODS     WTHER INCON LIGHT EVAPO INFIL PHOTO HYDRO NSWIT MESOM MESEV MESOL
-  1 ME              M     M     E     R     S     C     R     1     G     S     2
+ 1 ME              M     M     E     R     S     C     R     1     G     S     2
 @N MANAGEMENT  PLANT IRRIG FERTI RESID HARVS
-  1 MA              R     N     D     N     M
+ 1 MA              R     N     D     N     M
 @N OUTPUTS     FNAME OVVEW SUMRY FROPT GROUT CAOUT WAOUT NIOUT MIOUT DIOUT VBOSE CHOUT OPOUT FMOPT
-  1 OU              N     Y     Y     1     N     N     N     N     N     N     N     N     Y     A
+ 1 OU              N     Y     Y     1     N     N     N     N     N     N     N     N     Y     A
 
 @  AUTOMATIC MANAGEMENT
 @N PLANTING    PFRST PLAST PH2OL PH2OU PH2OD PSTMX PSTMN
-  1 PL          13109 13109    40   100    30    40    10
+ 1 PL          13109 13109    40   100    30    40    10
 @N IRRIGATION  IMDEP ITHRL ITHRU IROFF IMETH IRAMT IREFF
-  1 IR             30    50   100 GS000 IR001    10     1
+ 1 IR             30    50   100 GS000 IR001    10     1
 @N NITROGEN    NMDEP NMTHR NAMNT NCODE NAOFF
-  1 NI              5    50    25 FE005 GS000
+ 1 NI              5    50    25 FE005 GS000
 @N RESIDUES    RIPCN RTIME RIDEP
-  1 RE            100     1    20
+ 1 RE            100     1    20
 @N HARVEST     HFRST HLAST HPCNP HPCNR
-  1 HA              0 13109   100     0
+ 1 HA              0 13109   100     0
+
