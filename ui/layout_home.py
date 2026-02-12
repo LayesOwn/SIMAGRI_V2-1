@@ -1,5 +1,9 @@
 # ui/layout_home.py
-from dash import html, dcc
+try:
+    from dash import html, dcc
+except Exception:
+    import dash_html_components as html
+    import dash_core_components as dcc
 import dash_bootstrap_components as dbc
 
 def layout_home():

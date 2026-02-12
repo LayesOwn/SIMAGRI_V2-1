@@ -1,0 +1,14 @@
+*RUN-TIME ERRORS OUTPUT FILE
+
+
+*DSSAT Cropping System Model Ver. 4.7.5.021 -develop    FEB 08, 2026; 00:41:29
+
+*RUN   1
+
+CLMLS001.SNX, Trt    0
+
+Unknown ERROR. Error number:  5010                                            
+
+File: CLMLS001.SNX   Line:    18   Error key: IPEXP 
+
+Additional information may be available in WARNING.OUT file.

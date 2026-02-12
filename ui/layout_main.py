@@ -3,12 +3,16 @@
 # Interface principale SIMAGRI v2
 # ==========================================================
 
-#import dash_html_components as html
-from dash import html
-from dash import dcc
-#import dash_core_components as dcc
+try:
+    from dash import html, dcc
+except Exception:
+    import dash_html_components as html
+    import dash_core_components as dcc
 import dash_bootstrap_components as dbc
-from dash import dash_table
+try:
+    from dash import dash_table
+except Exception:
+    import dash_table
 from datetime import date
 import dash_leaflet as dl
 from domain.crop import get_crop_options

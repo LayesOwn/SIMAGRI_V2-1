@@ -3,7 +3,12 @@
 # Callbacks Dash – SIMAGRI v2
 # ==========================================================
 
-from dash import html, dcc, ctx
+try:
+    from dash import html, dcc, ctx
+except Exception:
+    import dash_html_components as html
+    import dash_core_components as dcc
+    from dash import callback_context as ctx
 from dash.dependencies import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
 import json
@@ -25,11 +30,12 @@ from domain.socio_eco import (
     compute_post_harvest_cost,
     compute_total_socio_cost,
 )
-from domain.scenario import build_scenario_from_ui
+from domain.scenario import build_scenario_from_ui, DSSAT_COLUMNS
 from domain.decision import evaluate_scenarios
 from domain.dssat.write_xfile import write_x_file
 from domain.dssat.write_snx import write_snx_file
 from domain.dssat.run_dssat import run_dssat_simulation
+from domain.dssat.validate_inputs import validate_dssat_inputs
 import os
 from pathlib import Path
 
@@ -72,7 +78,7 @@ def scenario_to_table_row(s):
     """
     Convertit un scénario complet en une ligne pour la table d'affichage
     """
-    return {
+    base = {
         "ID": s["id_scenario"],
         "Département": s["location"]["department"],
         "Culture": s["crop"]["code"],
@@ -88,6 +94,13 @@ def scenario_to_table_row(s):
         "Irrigation": s["irrigation"]["enabled"],
         "Coût total (FCFA)": s["economy"]["FixedCosts"],
     }
+
+    dssat = s.get("dssat", {})
+    # Ajouter tous les champs DSSAT même s'ils sont vides
+    for col in DSSAT_COLUMNS:
+        base[f"DSSAT:{col}"] = dssat.get(col, "")
+
+    return base
 
 
 # ==========================================================
@@ -554,7 +567,7 @@ def register_callbacks(app):
         # 1️⃣ Construire le scénario COMPLET depuis l'UI
         # --------------------------------------------------
         scenario = build_scenario_from_ui(
-            scenario_id=f"SCE_{len(stored_scenarios) + 1}",
+            scenario_id=f"S{len(stored_scenarios) + 1:03d}",
             department=department,
             crop=crop,
             cycle=cycle,
@@ -636,7 +649,23 @@ def register_callbacks(app):
                 print(f"  Plan irrigation : {scenario.get('irrigation', {}).get('schedule')}")
 
                 # ===============================
-                # 3️⃣ Génération des fichiers DSSAT
+                # 3️⃣ Validation DSSAT (avant génération)
+                # ===============================
+                validation = validate_dssat_inputs(scenario, BASE_DIR)
+                if validation["errors"]:
+                    messages.append(
+                        f"❌ Scénario {i} – erreurs DSSAT : "
+                        + " | ".join(validation["errors"])
+                    )
+                    continue
+                if validation["warnings"]:
+                    messages.append(
+                        f"⚠️ Scénario {i} – avertissements DSSAT : "
+                        + " | ".join(validation["warnings"])
+                    )
+
+                # ===============================
+                # 4️⃣ Génération des fichiers DSSAT
                 # ===============================
 
                 # --- X file ---
@@ -675,7 +704,7 @@ def register_callbacks(app):
                     raise
 
                 # ===============================
-                # 4️⃣ Lancer DSSAT
+                # 5️⃣ Lancer DSSAT
                 # ===============================
                 result = run_dssat_simulation(
                     str(snx_path),
@@ -683,7 +712,7 @@ def register_callbacks(app):
                 )
 
                 # ===============================
-                # 5️⃣ Analyse du résultat
+                # 6️⃣ Analyse du résultat
                 # ===============================
                 if result["returncode"] == 0:
                     messages.append(

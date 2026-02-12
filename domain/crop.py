@@ -14,24 +14,24 @@ def get_crop_options():
 
 # 🔑 Cultivars DSSAT par culture et cycle
 CULTIVARS = {
-    "ML": {  # Mil
-        "court": "IB0066",
-        "intermediaire": "IB0069",
-        "long": "IB0070",
+    "ML": {  # Mil (MLCER047.CUL)
+        "court": "IB0044",
+        "intermediaire": "IB0044",
+        "long": "IB0044",
     },
-    "SG": {  # Sorgho
-        "court": "SG001",
-        "intermediaire": "SG002",
-        "long": "SG003",
+    "SG": {  # Sorgho (SGCER047.CUL)
+        "court": "990001",
+        "intermediaire": "990001",
+        "long": "990001",
     },
-    "PN": {  # Arachide
-        "court": "PN001",
-        "intermediaire": "PN002",
-        "long": "PN003",
+    "PN": {  # Arachide (PNGRO047.CUL)
+        "court": "990001",
+        "intermediaire": "990001",
+        "long": "990001",
     },
-    "RI": {  # Riz
-        "court": "RI001",
-        "intermediaire": "RI002",
-        "long": "RI003",
+    "RI": {  # Riz (RICER047.CUL)
+        "court": "990001",
+        "intermediaire": "990001",
+        "long": "990001",
     },
 }

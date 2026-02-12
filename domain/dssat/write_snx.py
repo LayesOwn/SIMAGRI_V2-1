@@ -6,7 +6,15 @@ from os import path
 import os
 import datetime
 import calendar
+import re
 from pathlib import Path
+
+CROP_CUL_FILES = {
+    "ML": "MLCER047.CUL",
+    "SG": "SGCER047.CUL",
+    "RI": "RICER047.CUL",
+    "PN": "PNGRO047.CUL",
+}
 
 
 def write_snx_file(scenario, x_filename, output_dir):
@@ -26,7 +34,7 @@ def write_snx_file(scenario, x_filename, output_dir):
     planting_date = d['PltDate']  # Format: YYYYMMDD
     crop = d['Crop']
     cultivar = d['Cultivar']
-    soil_type = "SN-N15Rain"  # Senegal soil
+    soil_type = scenario["location"].get("soil_code", "SN_0840080")
     planting_density = str(d['plt_density'])
     scenario_name = d['sce_name']
     
@@ -43,13 +51,25 @@ def write_snx_file(scenario, x_filename, output_dir):
     fert_plan = scenario["fertilization"]["applications"]
     df_fert = create_fert_df(fert_plan)
     
+    # Valider le cultivar par rapport au fichier .CUL (évite les erreurs DSSAT)
+    cultivar_code, cultivar_name = resolve_cultivar(crop, cultivar, DSSAT_PATH)
+    if cultivar_code != cultivar:
+        print(
+            f"⚠️ Cultivar '{cultivar}' introuvable, "
+            f"fallback vers '{cultivar_code}'"
+        )
+        scenario["dssat"]["Cultivar"] = cultivar_code
+        if "crop" in scenario and isinstance(scenario["crop"], dict):
+            scenario["crop"]["cultivar"] = cultivar_code
+
     # Appeler la vraie fonction de V1 adaptée
     writeSNX_clim(
         DSSAT_PATH=DSSAT_PATH,
         station=station,
         planting_date=planting_date,
         crop=crop,
-        cultivar=cultivar,
+        cultivar=cultivar_code,
+        cultivar_name=cultivar_name,
         soil_type=soil_type,
         initial_soil_moisture=0.5,  # Default
         initial_soil_no3_content=1,  # Default
@@ -103,7 +123,46 @@ def create_fert_df(fert_plan):
     return pd.DataFrame(data)
 
 
-def writeSNX_clim(DSSAT_PATH, station, planting_date, crop, cultivar, soil_type, 
+def resolve_cultivar(crop, cultivar, dssat_path):
+    """
+    Vérifie que le cultivar existe dans le fichier .CUL.
+    Si non trouvé, utilise le premier cultivar valide.
+    """
+    cul_file = CROP_CUL_FILES.get(crop)
+    if not cul_file:
+        return cultivar, None
+
+    cul_path = Path(dssat_path) / cul_file
+    if not cul_path.exists():
+        return cultivar, None
+
+    candidates = []
+    try:
+        with open(cul_path, "r", encoding="latin-1", errors="ignore") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith(("*", "!")):
+                    continue
+                parts = line.split()
+                if not parts:
+                    continue
+                code = parts[0]
+                if not re.match(r"^[A-Z0-9]{6}$", code):
+                    continue
+                name = parts[1] if len(parts) > 1 else None
+                candidates.append((code, name))
+                if code == cultivar:
+                    return code, name
+    except Exception:
+        return cultivar, None
+
+    if candidates:
+        return candidates[0]
+
+    return cultivar, None
+
+
+def writeSNX_clim(DSSAT_PATH, station, planting_date, crop, cultivar, cultivar_name, soil_type, 
                   initial_soil_moisture, initial_soil_no3_content, planting_density, 
                   scenario, fert_app, df_fert, p_sim, p_level, irrig_app, 
                   irrig_method, df_irrig, ir_depth, ir_threshold, ir_eff, output_dir):
@@ -143,7 +202,7 @@ def writeSNX_clim(DSSAT_PATH, station, planting_date, crop, cultivar, soil_type,
         CNAME = cultivar[7:]
     else:
         INGENO = cultivar
-        CNAME = "SIMAGRI"
+        CNAME = cultivar_name or "SIMAGRI"
     
     # Soil info
     ID_SOIL = soil_type[0:10]
@@ -182,28 +241,32 @@ def writeSNX_clim(DSSAT_PATH, station, planting_date, crop, cultivar, soil_type,
                 temp_str = fr.readline()
                 fw.write(temp_str)
             
-            # Écrire les flags de traitement
+            # Lire et écrire la ligne de traitement du template (évite les erreurs d'alignement)
             FL = "1"
-            fw.write("{0:3s}{1:31s}{2:3s}{3:3s}{4:3s}{5:3s}{6:3s}{7:3s}{8:3s}{9:3s}{10:3s}{11:3s}{12:3s}{13:3s}".format(
-                FL.rjust(3), "1 0 0 SN-SIMAGRI                 1",
-                FL.rjust(3), "0".rjust(3), "1".rjust(3), "1".rjust(3), MI.rjust(3), 
-                MF.rjust(3), "0".rjust(3), "0".rjust(3),
-                "0".rjust(3), "0".rjust(3), "0".rjust(3), "1".rjust(3)))
-            fw.write(" \n")
-            
-            # Lire 3 lignes
-            for line in range(0, 3):
-                temp_str = fr.readline()
-                fw.write(temp_str)
+            temp_str = fr.readline()
+            fw.write(temp_str)
+
+            # Lire et écrire la ligne vide suivante
+            temp_str = fr.readline()
+            fw.write(temp_str)
+
+            # Écrire *CULTIVARS
+            # 0) écrire la ligne *CULTIVARS telle quelle
+            temp_str = fr.readline()
+            fw.write(temp_str)
             
             # Écrire *CULTIVARS
+            # 1) écrire la ligne d'en-tête telle quelle
+            temp_str = fr.readline()
+            fw.write(temp_str)
+            # 2) écrire la ligne de données en remplaçant culture/cultivar
             temp_str = fr.readline()
             new_str = temp_str[0:3] + crop + temp_str[5:6] + INGENO + temp_str[12:13] + CNAME
             fw.write(new_str)
             fw.write(" \n")
             
             # Lire et écrire jusqu'à *FIELDS
-            for line in range(0, 3):
+            for line in range(0, 2):
                 temp_str = fr.readline()
                 fw.write(temp_str)
             
@@ -212,24 +275,28 @@ def writeSNX_clim(DSSAT_PATH, station, planting_date, crop, cultivar, soil_type,
             ID_FIELD = WSTA_ID + "0001"
             SLTX = "SL"
             SLDP = "50"
-            
-            fw.write("{0:2s} {1:8s}{2:5s}{3:3s}{4:6s}{5:4s}  {6:10s}{7:4s}".format(
-                FL.rjust(2), ID_FIELD, WSTA_ID.rjust(5),
+
+            # Écrire l'en-tête @L ID_FIELD...
+            temp_str = fr.readline()
+            fw.write(temp_str)
+
+            # Écrire la ligne de données FIELD
+            fw.write("{0:2s} {1:8s} {2:5s}{3:3s}{4:6s}{5:4s}  {6:10s}{7:4s}".format(
+                FL.rjust(2), ID_FIELD[:8], WSTA_ID.rjust(5),
                 "       -99   -99   -99   -99   -99   -99 ",
                 SLTX.ljust(6), SLDP.rjust(4), ID_SOIL,
                 " -99"))
             fw.write(" \n")
-            
-            # Lire et écrire les sections suivantes
-            for line in range(0, 2):
-                temp_str = fr.readline()
-                fw.write(temp_str)
-            
+
+            # Écrire l'en-tête coordonnées et la ligne de données template
             temp_str = fr.readline()
-            fw.write("{0:2s} {1:89s}".format(FL.rjust(2),
-                                            "            -99             -99       -99               -99   -99   -99   -99   -99   -99"))
-            fw.write(" \n")
-            fw.write(" \n")
+            fw.write(temp_str)
+            temp_str = fr.readline()
+            fw.write(temp_str)
+
+            # Ligne vide après les coordonnées
+            temp_str = fr.readline()
+            fw.write(temp_str)
             
             # Sauter les sections jusqu'à *INITIAL CONDITIONS
             for nline in range(0, 50):
@@ -326,4 +393,4 @@ def writeSNX_clim(DSSAT_PATH, station, planting_date, crop, cultivar, soil_type,
         raise
 
     print(f"✅ SNX file written: {SNX_fname}")
-    return path(SNX_fname)
+    return Path(SNX_fname)

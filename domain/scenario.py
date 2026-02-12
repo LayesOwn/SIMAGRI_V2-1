@@ -3,7 +3,13 @@
 # Construction d’un scénario SIMAGRI → DSSAT
 # ==========================================================
 
-from domain.geography import get_department_gps, get_department_code, get_department_soil
+from domain.geography import (
+    get_department_gps,
+    get_department_code,
+    get_department_soil,
+    get_department_wth_code,
+    get_department_soil_code,
+)
 from domain.fertilisation import compute_npk_from_fertilizer
 from domain.crop import CULTIVARS
 
@@ -66,12 +72,15 @@ def build_scenario_from_ui(
     """
 
     lat, lon = get_department_gps(department)
-    station_code = get_department_code(department)
+    # Code station DSSAT (WTH) si disponible, sinon fallback au code normal
+    station_code = get_department_wth_code(department) or get_department_code(department)
     soil_type = get_department_soil(department)
 
     # ==================================================
     # 🌾 SCÉNARIO SIMAGRI (LOGIQUE MÉTIER)
     # ==================================================
+    soil_code = get_department_soil_code(department)
+
     scenario = {
         "id_scenario": scenario_id,
         "name": f"{crop}_{cycle}_{department}",
@@ -81,7 +90,7 @@ def build_scenario_from_ui(
             "station_code": station_code,
             "lat": lat,
             "lon": lon,
-            "soil_code": "SN-N15Rain",
+            "soil_code": soil_code,
             "soil_type": soil_type,
         },
 

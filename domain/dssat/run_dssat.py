@@ -3,6 +3,7 @@
 import os
 import subprocess
 from pathlib import Path
+import shutil
 
 
 # Mapping cultures → exécutables DSSAT
@@ -65,15 +66,20 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
         os.chdir(dssat_workdir)
         print(f"📁 Changed to: {os.getcwd()}")
         
-        # 3️⃣ CRÉER DSBATCH.V47 (format CORRECT)
-        batch_file = create_batch_file(snx_file.name, model)
+        # 3️⃣ S'assurer que le SNX est dans le répertoire de travail DSSAT
+        snx_in_workdir = dssat_workdir / snx_file.name
+        if snx_file.resolve() != snx_in_workdir.resolve():
+            shutil.copy2(snx_file, snx_in_workdir)
+
+        # 4️⃣ CRÉER DSBATCH.V47 (format CORRECT)
+        batch_file = create_batch_file(snx_in_workdir.name, model)
         print(f"📋 Batch file created: {batch_file}")
         
         # DEBUG : afficher le contenu du batch file
         with open("DSSBatch.V47", "r") as f:
             print(f"📋 Batch file content:\n{f.read()}")
         
-        # 4️⃣ LANCER DSSAT (Docker version)
+        # 5️⃣ LANCER DSSAT (Docker version)
         # Chemin complet DSSAT dans Docker
         dssat_path = "/home/SIMAGRI/DSSAT/dssat-base-files/dscsm047"
         cmd = f"{dssat_path} {model} B DSSBatch.V47"
@@ -81,7 +87,7 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
         
         returncode = os.system(cmd)
         
-        # 5️⃣ RÉSULTAT
+        # 6️⃣ RÉSULTAT
         if returncode == 0:
             print(f"✅ SIMULATION SUCCESS")
             

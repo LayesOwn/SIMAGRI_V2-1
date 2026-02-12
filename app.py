@@ -1,6 +1,15 @@
 # app.py
 import dash
-from dash import html, dcc
+try:
+    Output = dash.Output
+    Input = dash.Input
+except Exception:
+    from dash.dependencies import Output, Input
+try:
+    from dash import html, dcc
+except Exception:
+    import dash_html_components as html
+    import dash_core_components as dcc
 import dash_bootstrap_components as dbc
 import os
 
@@ -36,8 +45,8 @@ app.layout = html.Div([
 # ROUTAGE DES PAGES
 # ==================================================
 @app.callback(
-    dash.Output("page-content", "children"),
-    dash.Input("url", "pathname")
+    Output("page-content", "children"),
+    Input("url", "pathname")
 )
 def display_page(pathname):
 
