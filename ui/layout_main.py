@@ -33,6 +33,7 @@ def layout_main():
         # MÉMOIRE DES SCÉNARIOS
         # ==================================================
         dcc.Store(id="scenario-store", data=[]),
+        dcc.Store(id="simulation-results-store", data={}),
         dcc.Store(id="fertilization-store", data=[]),
         dcc.Store(id="irrigation-store", data=[]),
 
@@ -71,12 +72,12 @@ def layout_main():
                                 )
                             ], md=4),
                             dbc.Col([
-                                    dbc.Label("Sol DSSAT (charge automatiquement)"),
+                                    dbc.Label("Type de sol (chargé automatiquement)"),
                                     dcc.Dropdown(
                                         id="soil_type",
                                         options=get_soil_code_options(),
                                         value=None,
-                                        disabled=True
+                                        disabled=True   # 🔒 verrouillé
                                     ),
                                 ], md=4),
                             
@@ -107,12 +108,14 @@ def layout_main():
                             ],
                                     
                                     md=4),
-                            dbc.Row([
+                            
                             ]),
+                        html.Hr(),
+                            
                             ### Analyse historique début de saison ###
-                           dbc.Card([
+                           
                                 dbc.CardHeader("Plage de dates simulees"),
-                                dbc.CardBody([
+                                
 
                                     dbc.Row([
                                         dbc.Col([
@@ -124,7 +127,7 @@ def layout_main():
                                                 min=1991,
                                                 max=current_year
                                             )
-                                        ], md=3),
+                                        ], md=6),
 
                                         dbc.Col([
                                             dbc.Label("Année de fin"),
@@ -135,22 +138,22 @@ def layout_main():
                                                 min=1991,
                                                 max=current_year
                                             )
-                                        ], md=3),
+                                        ], md=6),
 
                                         
                                     ]),
 
                                     html.Br(),
-
+                                
                                     dbc.Alert(
                                         id="hist_info",
                                         color="info",
                                         is_open=False
                                     )
-                                ])
-                            ]),
-   
-                          dbc.Row([  
+                                
+                            ,
+                         dbc.Row([
+                        dbc.Row([  
                             dbc.Col([
                                 dbc.Label("Date de semis"),
                                 dcc.DatePickerSingle(
@@ -179,9 +182,7 @@ def layout_main():
                            html.Hr(),
 
                         # --- Pratiques culturales ---
-                        dbc.Row([
                             
-
                         dbc.Row([
                         dbc.Col([
                             dbc.Label("Fertilisation"),
@@ -197,7 +198,7 @@ def layout_main():
                                ]),
                         html.Div(
                                 id="fertilization-block",
-                                style={"display": "none"},
+                                style={"display": "none", "width": "100%"},
                                 children=[
 
                                     dbc.Button(
@@ -254,7 +255,7 @@ def layout_main():
                                 ]),
                                 html.Div(
                                     id="irrigation-block",
-                                    style={"display": "none"},
+                                    style={"display": "none", "width": "100%"},
                                     children=[
 
                                         dbc.Button(
@@ -306,7 +307,7 @@ def layout_main():
                             ]),
                             html.Div(
                             id="socio-block",
-                            style={"display": "none"},
+                            style={"display": "none", "width": "100%"},
                             children=[
 
                                 html.H5("Compte d’exploitation agricole"),
@@ -435,7 +436,7 @@ def layout_main():
                         )
 
 
-                        ]),
+                        ,
 
                         html.Hr(),
 
@@ -549,6 +550,35 @@ def layout_main():
                     page_size=6,
                     row_selectable="multi",
                     style_table={"overflowX": "auto"},
+                    style_data_conditional=[
+                        {
+                            "if": {
+                                "filter_query": "{DSSAT:Status} = 'ERREUR'",
+                                "column_id": "DSSAT:Status",
+                            },
+                            "backgroundColor": "#dc3545",
+                            "color": "white",
+                            "fontWeight": "bold",
+                        },
+                        {
+                            "if": {
+                                "filter_query": "{DSSAT:Status} = 'VIDE'",
+                                "column_id": "DSSAT:Status",
+                            },
+                            "backgroundColor": "#ffc107",
+                            "color": "#212529",
+                            "fontWeight": "bold",
+                        },
+                        {
+                            "if": {
+                                "filter_query": "{DSSAT:Status} = 'SUCCES'",
+                                "column_id": "DSSAT:Status",
+                            },
+                            "backgroundColor": "#198754",
+                            "color": "white",
+                            "fontWeight": "bold",
+                        },
+                    ],
                     style_cell={
                         "minWidth": "120px",
                         "width": "120px",
@@ -577,6 +607,3 @@ def layout_main():
         ]),
 
     ], fluid=True)
-
-
-

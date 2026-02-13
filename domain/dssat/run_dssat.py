@@ -74,6 +74,9 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
         # 4️⃣ CRÉER DSBATCH.V47 (format CORRECT)
         batch_file = create_batch_file(snx_in_workdir.name, model)
         print(f"📋 Batch file created: {batch_file}")
+
+        # 4bis️⃣ Assurer les alias météo 4-caractères (KAOL.WTH, etc.)
+        ensure_weather_aliases(dssat_workdir)
         
         # DEBUG : afficher le contenu du batch file
         with open("DSSBatch.V47", "r") as f:
@@ -117,6 +120,26 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
             "stdout": "",
             "stderr": str(e)
         }
+
+
+def ensure_weather_aliases(dssat_workdir):
+    """
+    DSSAT peut demander des fichiers météo en code station 4 caractères.
+    On crée des alias *.WTH (ex: KAOL.WTH -> KAOLA.WTH) si absents.
+    """
+    workdir = Path(dssat_workdir)
+    for wth in workdir.glob("*.WTH"):
+        stem = wth.stem
+        if len(stem) < 4:
+            continue
+        alias = workdir / f"{stem[:4]}.WTH"
+        if alias.exists() or alias.resolve() == wth.resolve():
+            continue
+        try:
+            shutil.copy2(wth, alias)
+            print(f"✅ Weather alias created: {alias.name} -> {wth.name}")
+        except Exception as e:
+            print(f"⚠️  Weather alias skipped ({alias.name}): {e}")
 
 
 def extract_crop_from_snx(snx_file):

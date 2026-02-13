@@ -22,7 +22,8 @@ def write_snx_file(scenario, x_filename, output_dir):
     crop = d.get("Crop", "ML")
     scenario_name = d.get("sce_name", "S001")
     stn_name = (d.get("stn_name", "BAMBY") or "BAMBY").upper()
-    stn_name = re.sub(r"[^A-Z0-9]", "", stn_name)[:5] or "BAMBY"
+    stn_name = re.sub(r"[^A-Z0-9]", "", stn_name)
+    stn_code = (stn_name[:4] or "BAMB")
     cultivar_input = d.get("Cultivar", "IB0044")
     planting_density = int(d.get("plt_density", 5))
     planting_date = d.get("PltDate", "2026-06-15")
@@ -61,9 +62,9 @@ def write_snx_file(scenario, x_filename, output_dir):
         f.write(f" 1 {crop:<2} {cultivar_code:<6} {cultivar_name}\n\n")
 
         f.write("*FIELDS\n")
-        id_field = f"{stn_name[:4]}0001"
+        id_field = f"{stn_code}0001"
         f.write("@L ID_FIELD WSTA....  FLSA  FLOB  FLDT  FLDD  FLDS  FLST SLTX  SLDP  ID_SOIL    FLNAME\n")
-        f.write(f" 1 {id_field:<8} {stn_name:<5}     -99   -99 DR000   -99   -99     0   -99    50  {soil_code:<10} -99\n")
+        f.write(f" 1 {id_field:<8} {stn_code:<4}      -99   -99 DR000   -99   -99     0   -99    50  {soil_code:<10} -99\n")
         f.write("@L ...........XCRD ...........YCRD .....ELEV .............AREA .SLEN .FLWR .SLAS FLHST FHDUR\n")
         f.write(" 1            -99             -99       -99               -99   -99   -99   -99   -99   -99\n\n")
 
@@ -76,8 +77,10 @@ def write_snx_file(scenario, x_filename, output_dir):
 
         f.write("*PLANTING DETAILS\n")
         f.write("@P PDATE EDATE  PPOP  PPOE  PLME  PLDS  PLRS  PLRD  PLDP  PLWT  PAGE  PENV  PLPH  SPRL                        PLNAME\n")
+        # Keep strict fixed-width numeric fields to satisfy IPPLNT parser.
+        e_date = -99
         f.write(
-            f" 1 {pdate:>5}   -99 {planting_density:>6} {planting_density:>5}     S     R    60     0     5   -99   -99   -99   -99   -99                        FIELD\n\n"
+            f" 1 {pdate:>5} {e_date:>5} {planting_density:>5} {planting_density:>5}     S     R    60     0     5   -99   -99   -99   -99   -99                        FIELD\n\n"
         )
 
         f.write("*FERTILIZERS (INORGANIC)\n")

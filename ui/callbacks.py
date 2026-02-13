@@ -13,10 +13,14 @@ from dash.dependencies import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
 import json
 from pathlib import Path
+import re
+from datetime import datetime, timedelta
+import unicodedata
 
 # --- Imports domaine métier
 from domain.geography import get_department_gps, get_department_soil
 from domain.climate.enacts import load_enacts, compute_probabilistic_onset
+from domain.climate.weather import ensure_weather_for_scenario, generate_all_department_wth
 from domain.irrigation import get_irrigation_schedule, compute_irrigation_cost
 from domain.fertilisation import (
     compute_fertilization_cost,
@@ -36,6 +40,7 @@ from domain.dssat.write_xfile import write_x_file
 from domain.dssat.write_snx import write_snx_file
 from domain.dssat.run_dssat import run_dssat_simulation
 from domain.dssat.validate_inputs import validate_dssat_inputs
+from domain.dssat.validate_inputs import _find_wth_file, _parse_wth_dates, _parse_planting_date
 import os
 from pathlib import Path
 
@@ -67,8 +72,21 @@ print(f"✅ BASE_DIR = {BASE_DIR}")
 print(f"   Existe ? {BASE_DIR.exists()}")
 print(f"   dssat/ existe ? {(BASE_DIR / 'dssat').exists()}")
 print(f"   Fichiers .WTH : {len(list((BASE_DIR / 'dssat').glob('*.WTH')))}")
+try:
+    generated = generate_all_department_wth(BASE_DIR / "dssat")
+    print(f"   WTH générés (départements): {len(generated)}")
+except Exception as e:
+    print(f"   ⚠️ génération WTH départements: {e}")
 
 GEOJSON_PATH = BASE_DIR / "data" / "geojson" / "senegal_departments.json"
+
+
+def _norm_name(value):
+    s = unicodedata.normalize("NFD", str(value or ""))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "", s)
+    return s
 
 
 # ==========================================================
@@ -78,6 +96,12 @@ def scenario_to_table_row(s):
     """
     Convertit un scénario complet en une ligne pour la table d'affichage
     """
+    economy = s.get("economy", {})
+    fert_cost = economy.get("NFertCost", 0) or 0
+    irrig_cost = economy.get("IrrigCost", 0) or 0
+    production_cost = economy.get("FixedCosts", 0) or 0
+    total_cost = fert_cost + irrig_cost + production_cost
+
     base = {
         "ID": s["id_scenario"],
         "Département": s["location"]["department"],
@@ -92,7 +116,10 @@ def scenario_to_table_row(s):
         ),
         "Fertilisation": s["fertilization"]["enabled"],
         "Irrigation": s["irrigation"]["enabled"],
-        "Coût total (FCFA)": s["economy"]["FixedCosts"],
+        "Coût fertilisation (FCFA)": fert_cost,
+        "Coût irrigation (FCFA)": irrig_cost,
+        "Coût production (FCFA)": production_cost,
+        "Coût total (FCFA)": total_cost,
     }
 
     dssat = s.get("dssat", {})
@@ -101,6 +128,196 @@ def scenario_to_table_row(s):
         base[f"DSSAT:{col}"] = dssat.get(col, "")
 
     return base
+
+
+def get_triggered_id():
+    """
+    Compat Dash v1/v2 pour récupérer l'id qui a déclenché le callback.
+    """
+    try:
+        return ctx.triggered_id
+    except Exception:
+        triggered = getattr(ctx, "triggered", None) or []
+        if not triggered:
+            return None
+        prop_id = triggered[0].get("prop_id", "")
+        return prop_id.split(".")[0] if prop_id else None
+
+
+def parse_summary_metrics(summary_path):
+    """
+    Parse les indicateurs clés DSSAT depuis Summary.OUT.
+    """
+    if not summary_path.exists():
+        return {}
+
+    try:
+        lines = summary_path.read_text(encoding="latin-1", errors="ignore").splitlines()
+    except Exception:
+        return {}
+
+    data_line = None
+    for line in lines:
+        if line.strip().startswith("RUN") or line.strip().startswith("dap"):
+            continue
+        if not re.match(r"^\s*\d+\s+[A-Z]{2}\s+", line):
+            continue
+        parts = line.split()
+        if len(parts) >= 14:
+            data_line = parts
+    if not data_line:
+        return {}
+
+    keys = [
+        "RUN", "TRT", "FLO", "MAT", "TOPWT", "HARWT",
+        "RAIN", "TIRR", "CET", "PESW", "TNUP", "TNLF", "TSON", "TSOC",
+    ]
+    out = {}
+    for i, key in enumerate(keys):
+        if i < len(data_line):
+            out[key] = data_line[i]
+    return out
+
+
+def format_metrics_short(metrics):
+    if not metrics:
+        return ""
+    return (
+        f"HARWT={metrics.get('HARWT', '-')}, "
+        f"TOPWT={metrics.get('TOPWT', '-')}, "
+        f"RAIN={metrics.get('RAIN', '-')}, "
+        f"TIRR={metrics.get('TIRR', '-')}, "
+        f"CET={metrics.get('CET', '-')}, "
+        f"MAT={metrics.get('MAT', '-')}"
+    )
+
+
+def classify_dssat_status(metrics):
+    """
+    Retourne un statut simple: SUCCES, VIDE ou ERREUR.
+    """
+    if not metrics:
+        return "ERREUR"
+    harwt = str(metrics.get("HARWT", "")).strip()
+    topwt = str(metrics.get("TOPWT", "")).strip()
+    if harwt in {"-99", ""} and topwt in {"-99", ""}:
+        return "VIDE"
+    return "SUCCES"
+
+
+def build_table(scenarios, sim_results):
+    table_data = []
+    for s in scenarios:
+        row = scenario_to_table_row(s)
+        sid = s.get("id_scenario")
+        m = (sim_results or {}).get(sid, {})
+        row["DSSAT:Status"] = m.get("status", "-")
+        row["DSSAT:HARWT"] = m.get("HARWT", "-")
+        row["DSSAT:TOPWT"] = m.get("TOPWT", "-")
+        row["DSSAT:RAIN"] = m.get("RAIN", "-")
+        row["DSSAT:TIRR"] = m.get("TIRR", "-")
+        row["DSSAT:CET"] = m.get("CET", "-")
+        row["DSSAT:MAT"] = m.get("MAT", "-")
+        table_data.append(row)
+
+    columns = [{"name": k, "id": k} for k in table_data[0].keys()] if table_data else []
+    return table_data, columns
+
+
+def build_simulation_output(scenarios, sim_results, messages):
+    rows = []
+    for idx, s in enumerate(scenarios, start=1):
+        sid = s.get("id_scenario")
+        m = (sim_results or {}).get(sid, {})
+        status = m.get("status", "ERREUR")
+        color = "success" if status == "SUCCES" else ("warning" if status == "VIDE" else "danger")
+        rows.append(
+            html.Tr([
+                html.Td(f"Scénario {idx}"),
+                html.Td(sid or "-"),
+                html.Td(dbc.Badge(status, color=color, className="me-1")),
+                html.Td(m.get("HARWT", "-")),
+                html.Td(m.get("TOPWT", "-")),
+                html.Td(m.get("RAIN", "-")),
+                html.Td(m.get("TIRR", "-")),
+                html.Td(m.get("CET", "-")),
+                html.Td(m.get("MAT", "-")),
+            ])
+        )
+
+    n_success = sum(1 for v in (sim_results or {}).values() if v.get("status") == "SUCCES")
+    n_empty = sum(1 for v in (sim_results or {}).values() if v.get("status") == "VIDE")
+    n_error = max(0, len(scenarios) - n_success - n_empty)
+
+    return html.Div([
+        html.H5("📊 Résultat des simulations DSSAT", className="mb-3"),
+        html.Ul([html.Li(m, className="mb-1") for m in messages]),
+        dbc.Table(
+            [
+                html.Thead(html.Tr([
+                    html.Th("Scénario"),
+                    html.Th("ID"),
+                    html.Th("Status"),
+                    html.Th("HARWT"),
+                    html.Th("TOPWT"),
+                    html.Th("RAIN"),
+                    html.Th("TIRR"),
+                    html.Th("CET"),
+                    html.Th("MAT"),
+                ])),
+                html.Tbody(rows),
+            ],
+            bordered=True,
+            striped=True,
+            hover=True,
+            size="sm",
+            className="mt-3",
+        ),
+        html.P(f"Total: {len(scenarios)} | Succès: {n_success} | Vides: {n_empty} | Erreurs: {n_error}"),
+    ])
+
+
+def align_planting_date_to_wth_year(scenario, base_dir):
+    """
+    Aligne l'année de semis sur l'année couverte par le fichier WTH (si nécessaire).
+    Retourne un message d'ajustement ou None.
+    """
+    try:
+        station = scenario.get("location", {}).get("station_code")
+        if not station:
+            return None
+        dssat_dir = Path(base_dir) / "dssat"
+        wth_path = _find_wth_file(dssat_dir, station)
+        if not wth_path:
+            return None
+        dates, _ = _parse_wth_dates(wth_path)
+        if not dates:
+            return None
+
+        pdate = _parse_planting_date(scenario.get("crop", {}).get("planting_date"))
+        if not pdate:
+            return None
+
+        dmin, dmax = min(dates), max(dates)
+        if dmin <= pdate <= dmax:
+            return None
+
+        target_year = dmax.year
+        doy = pdate.timetuple().tm_yday
+        max_doy = 366 if (target_year % 4 == 0 and (target_year % 100 != 0 or target_year % 400 == 0)) else 365
+        adj_doy = min(doy, max_doy)
+        new_date = (datetime(target_year, 1, 1) + timedelta(days=adj_doy - 1)).date()
+
+        scenario["crop"]["planting_date"] = new_date.isoformat()
+        if "dssat" in scenario and isinstance(scenario["dssat"], dict):
+            scenario["dssat"]["PltDate"] = new_date.isoformat()
+
+        return (
+            f"⚠️ Date de semis ajustée pour WTH '{wth_path.name}': "
+            f"{pdate} -> {new_date}"
+        )
+    except Exception:
+        return None
 
 
 # ==========================================================
@@ -147,14 +364,16 @@ def register_callbacks(app):
                 geo = json.load(f)
 
             feature = None
+            target = _norm_name(dept_name)
             for f in geo["features"]:
                 name = (
                     f["properties"].get("NAME")
                     or f["properties"].get("name")
+                    or f["properties"].get("ADM2_FR")
+                    or f["properties"].get("ADM2_EN")
                     or ""
                 )
-
-                if name.lower() == dept_name.lower():
+                if _norm_name(name) == target:
                     feature = f
                     break
 
@@ -237,7 +456,7 @@ def register_callbacks(app):
                 "price": 250
             }]
 
-        if ctx.triggered_id == "add-irrigation":
+        if get_triggered_id() == "add-irrigation":
             store.append(store[-1].copy())
 
         total = 0
@@ -425,7 +644,7 @@ def register_callbacks(app):
         if not store:
             store = [{"type": "NPK", "qty": 150}]
 
-        if ctx.triggered_id == "add-fertilization":
+        if get_triggered_id() == "add-fertilization":
             store.append(store[-1].copy())
 
         total = 0
@@ -487,37 +706,62 @@ def register_callbacks(app):
     # 🌧️ DATE DE SEMIS ENACTS
     # ======================================================
     @app.callback(
-        Output("recommended_sowing_date", "value"),
+        [
+            Output("recommended_sowing_date", "value"),
+            Output("planting_date", "min_date_allowed"),
+            Output("planting_date", "max_date_allowed"),
+            Output("planting_date", "date"),
+        ],
         [
             Input("department", "value"),
             Input("hist_start_year", "value"),
-            Input("hist_end_year", "value")
-        ]
+            Input("hist_end_year", "value"),
+        ],
+        State("planting_date", "date"),
     )
-    def update_onset(dept, y0, y1):
+    def update_onset(dept, y0, y1, current_planting_date):
         """
         Calcule la date de semis recommandée basée sur les données ENACTS
         """
         if not dept or not y0 or not y1:
-            return ""
+            return "", None, None, current_planting_date
         try:
             df = load_enacts(dept)
             d, p = compute_probabilistic_onset(df, y0, y1)
-            return f"{d} (P={p:.0%})" if d else "Pas de date fiable"
+            if not d:
+                return "Pas de date fiable", None, None, current_planting_date
+
+            # Année de référence pour le DatePicker
+            if current_planting_date:
+                ref_year = datetime.strptime(str(current_planting_date), "%Y-%m-%d").year
+            else:
+                ref_year = int(df["date"].dt.year.max())
+
+            onset_dt = datetime.strptime(f"{d} {ref_year}", "%d %B %Y").date()
+            min_dt = onset_dt - timedelta(days=10)
+            max_dt = onset_dt + timedelta(days=10)
+
+            if current_planting_date:
+                cur_dt = datetime.strptime(str(current_planting_date), "%Y-%m-%d").date()
+                selected_dt = cur_dt if (min_dt <= cur_dt <= max_dt) else onset_dt
+            else:
+                selected_dt = onset_dt
+
+            msg = (
+                f"{d} (P={p:.0%}) | Fenêtre: "
+                f"{min_dt.strftime('%d/%m')} - {max_dt.strftime('%d/%m')}"
+            )
+            return msg, min_dt.isoformat(), max_dt.isoformat(), selected_dt.isoformat()
         except Exception as e:
             print(f"⚠️ Erreur calcul onset : {e}")
-            return "Erreur calcul"
+            return "Erreur calcul", None, None, current_planting_date
 
 
     # ======================================================
     # ➕ AJOUT SCÉNARIO
     # ======================================================
     @app.callback(
-        [
-            Output("scenario-store", "data"),
-            Output("scenario-table", "data"),
-            Output("scenario-table", "columns"),
-        ],
+        Output("scenario-store", "data"),
         Input("add_scenario", "n_clicks"),
         State("scenario-store", "data"),
         State("department", "value"),
@@ -595,32 +839,36 @@ def register_callbacks(app):
         # --------------------------------------------------
         stored_scenarios.append(scenario)
 
-        # --------------------------------------------------
-        # 3️⃣ Construire la table des scénarios (UI)
-        # --------------------------------------------------
-        table_data = [scenario_to_table_row(s) for s in stored_scenarios]
+        return stored_scenarios
 
-        columns = [
-            {"name": k, "id": k}
-            for k in table_data[0].keys()
-        ]
-
-        # --------------------------------------------------
-        # 4️⃣ Retour Dash
-        # --------------------------------------------------
-        return stored_scenarios, table_data, columns
+    @app.callback(
+        [
+            Output("scenario-table", "data"),
+            Output("scenario-table", "columns"),
+        ],
+        Input("scenario-store", "data"),
+        Input("simulation-results-store", "data"),
+    )
+    def render_scenario_table(stored_scenarios, sim_results):
+        if not stored_scenarios:
+            return [], []
+        return build_table(stored_scenarios, sim_results or {})
 
 
     # ======================================================
     # ▶️ SIMULATION DSSAT
     # ======================================================
     @app.callback(
-        Output("comparison-output", "children"),
+        [
+            Output("comparison-output", "children"),
+            Output("simulation-results-store", "data"),
+        ],
         Input("run_simulation", "n_clicks"),
         State("scenario-store", "data"),
+        State("simulation-results-store", "data"),
         prevent_initial_call=True,
     )
-    def run_dssat_from_ui(n_clicks, scenarios):
+    def run_dssat_from_ui(n_clicks, scenarios, sim_results):
         """
         Lance la simulation DSSAT pour 1 ou plusieurs scénarios
         """
@@ -629,12 +877,13 @@ def register_callbacks(app):
         # 1️⃣ Sécurité de base
         # ===============================
         if not n_clicks:
-            return "Cliquez sur le bouton Simuler"
+            return "Cliquez sur le bouton Simuler", (sim_results or {})
 
         if not scenarios or len(scenarios) == 0:
-            return "⚠️ Aucun scénario à simuler. Ajoutez au moins un scénario."
+            return "⚠️ Aucun scénario à simuler. Ajoutez au moins un scénario.", (sim_results or {})
 
         messages = []
+        sim_results = dict(sim_results or {})
 
         # ===============================
         # 2️⃣ Boucle sur les scénarios
@@ -642,6 +891,15 @@ def register_callbacks(app):
         for i, scenario in enumerate(scenarios, start=1):
 
             try:
+                # Génère un .WTH propre au département sélectionné et met à jour la station.
+                wth_path = ensure_weather_for_scenario(scenario, BASE_DIR / "dssat")
+                if wth_path:
+                    messages.append(f"Scénario {i} – météo chargée: {wth_path.name}")
+
+                adjust_msg = align_planting_date_to_wth_year(scenario, BASE_DIR)
+                if adjust_msg:
+                    messages.append(f"Scénario {i} – {adjust_msg}")
+
                 # 🔍 DEBUG
                 print(f"\n[SIMULATION] Scénario {i}")
                 print(f"  ID : {scenario.get('id_scenario')}")
@@ -653,6 +911,7 @@ def register_callbacks(app):
                 # ===============================
                 validation = validate_dssat_inputs(scenario, BASE_DIR)
                 if validation["errors"]:
+                    sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
                     messages.append(
                         f"❌ Scénario {i} – erreurs DSSAT : "
                         + " | ".join(validation["errors"])
@@ -715,23 +974,38 @@ def register_callbacks(app):
                 # 6️⃣ Analyse du résultat
                 # ===============================
                 if result["returncode"] == 0:
-                    messages.append(
-                        f"✅ Scénario {i} simulé avec succès ({snx_path.name})"
-                    )
+                    parsed = parse_summary_metrics(BASE_DIR / "dssat" / "Summary.OUT")
+                    # Run-level success from DSSAT should not be marked as ERREUR
+                    # just because Summary parsing is incomplete.
+                    metrics = dict(parsed or {})
+                    status = classify_dssat_status(parsed) if parsed else "SUCCES"
+                    metrics["status"] = status
+                    sim_results[scenario.get("id_scenario")] = metrics
+                    if status == "VIDE":
+                        messages.append(
+                            f"⚠️ Scénario {i} simulé ({snx_path.name}) mais résultats vides (-99)"
+                        )
+                    else:
+                        messages.append(
+                            f"✅ Scénario {i} simulé avec succès ({snx_path.name}) | {format_metrics_short(metrics)}"
+                        )
                     print(f"  ✅ DSSAT retour : 0 (succès)")
                 else:
+                    sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
                     messages.append(
                         f"❌ Scénario {i} – erreur DSSAT : {result['stderr'][:100]}"
                     )
                     print(f"  ❌ DSSAT erreur : {result['stderr'][:200]}")
 
             except FileNotFoundError as e:
+                sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
                 messages.append(
                     f"❌ Scénario {i} – fichier manquant : {str(e)}"
                 )
                 print(f"  ❌ Fichier manquant : {e}")
 
             except Exception as e:
+                sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
                 messages.append(
                     f"❌ Scénario {i} – erreur : {str(e)[:100]}"
                 )
@@ -740,12 +1014,4 @@ def register_callbacks(app):
         # ===============================
         # 6️⃣ Affichage UI
         # ===============================
-        return html.Div([
-            html.H5("📊 Résultat des simulations DSSAT", className="mb-3"),
-            html.Ul([html.Li(m, className="mb-2") for m in messages]),
-            html.Hr(),
-            html.P(
-                f"Total : {len(scenarios)} scénario(s), "
-                f"{sum(1 for m in messages if '✅' in m)} succès"
-            )
-        ])
+        return build_simulation_output(scenarios, sim_results, messages), sim_results

@@ -1,6 +1,7 @@
 # domain/climate/enacts.py
 import pandas as pd
 from pathlib import Path
+import re
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "enacts"
 
@@ -10,6 +11,37 @@ DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "enacts"
 # ==========================================================
 
 from domain.geography import get_department_code
+
+
+ENACTS_CODE_ALIASES = {
+    # Code généré -> nom de fichier réel
+    "MEDINA_YORO_FOULAH": "MEDINA_YOROFOULA",
+}
+
+
+def _norm_code(value):
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def _resolve_enacts_file(code):
+    # 1) correspondance directe
+    p = DATA_DIR / f"{code}.csv"
+    if p.exists():
+        return p
+
+    # 2) alias explicites
+    alias = ENACTS_CODE_ALIASES.get(code)
+    if alias:
+        p = DATA_DIR / f"{alias}.csv"
+        if p.exists():
+            return p
+
+    # 3) fallback robuste (ignore _, -, espaces)
+    target = _norm_code(code)
+    for f in DATA_DIR.glob("*.csv"):
+        if _norm_code(f.stem) == target:
+            return f
+    return None
 
 def load_enacts(department):
     """
@@ -21,11 +53,10 @@ def load_enacts(department):
     if code is None:
         raise ValueError(f"Département inconnu : {department}")
 
-    filepath = DATA_DIR / f"{code}.csv"
-
-    if not filepath.exists():
+    filepath = _resolve_enacts_file(code)
+    if not filepath:
         raise FileNotFoundError(
-            f"Fichier ENACTS introuvable : {filepath}"
+            f"Fichier ENACTS introuvable pour '{department}' (code: {code})"
         )
 
     df = pd.read_csv(filepath)
