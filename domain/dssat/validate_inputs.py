@@ -74,7 +74,9 @@ def _parse_wth_dates(wth_path):
 def _soil_exists(sol_path, soil_code):
     if not sol_path.exists():
         return False
-    pattern = re.compile(rf"^\s*{re.escape(soil_code)}\b")
+    # DSSAT .SOL ids are declared on lines like: *CR06002014 ...
+    # Accept optional leading '*' and whitespace.
+    pattern = re.compile(rf"^\s*\*?{re.escape(soil_code)}\b", re.IGNORECASE)
     with open(sol_path, "r", encoding="latin-1", errors="ignore") as f:
         for line in f:
             if pattern.match(line):
@@ -142,7 +144,7 @@ def validate_dssat_inputs(scenario, base_dir):
 
     # Sol
     soil_code = scenario.get("location", {}).get("soil_code")
-    sol_path = dssat_dir / "SENEGAL.SOL"
+    sol_path = dssat_dir / "SOIL.SOL"
     if not soil_code:
         errors.append("Code sol DSSAT manquant")
     elif not _soil_exists(sol_path, soil_code):

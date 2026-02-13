@@ -1,13 +1,7 @@
-# domain/dssat/write_snx.py - ADAPTÉ DE V1 POUR SIMAGRI V2
-
-import numpy as np
-import pandas as pd
-from os import path
-import os
-import datetime
-import calendar
-import re
+from datetime import datetime, timedelta
 from pathlib import Path
+import re
+
 
 CROP_CUL_FILES = {
     "ML": "MLCER047.CUL",
@@ -19,378 +13,172 @@ CROP_CUL_FILES = {
 
 def write_snx_file(scenario, x_filename, output_dir):
     """
-    Génère un fichier SNX en adaptant la logique V1
-    
-    scenario : dict complet SIMAGRI avec dssat
-    x_filename : nom du fichier X (ex: SCE_1.X)
-    output_dir : dossier de sortie (/app/dssat/snx)
+    Generate a DSSAT SNX file with stable structure for DSSAT v4.7 executables.
     """
-    
     d = scenario["dssat"]
-    DSSAT_PATH = "/app/dssat"  # Docker path
-    
-    # Extraire les paramètres
-    station = d['stn_name']
-    planting_date = d['PltDate']  # Format: YYYYMMDD
-    crop = d['Crop']
-    cultivar = d['Cultivar']
-    soil_type = scenario["location"].get("soil_code", "SN_0840080")
-    planting_density = str(d['plt_density'])
-    scenario_name = d['sce_name']
-    
-    # Irrigation & Fertilisation
-    irrig_app = "repr_irrig" if scenario["irrigation"]["enabled"] else "N"
-    irrig_method = "IR001" if scenario["irrigation"]["enabled"] else "N"
-    
-    fert_app = "Fert" if scenario["fertilization"]["enabled"] else "N"
-    
-    # Créer dataframes pour irrigation et fertilisation
-    irrig_plan = scenario["irrigation"]["schedule"]
-    df_irrig = create_irrig_df(irrig_plan)
-    
-    fert_plan = scenario["fertilization"]["applications"]
-    df_fert = create_fert_df(fert_plan)
-    
-    # Valider le cultivar par rapport au fichier .CUL (évite les erreurs DSSAT)
-    cultivar_code, cultivar_name = resolve_cultivar(crop, cultivar, DSSAT_PATH)
-    if cultivar_code != cultivar:
-        print(
-            f"⚠️ Cultivar '{cultivar}' introuvable, "
-            f"fallback vers '{cultivar_code}'"
-        )
-        scenario["dssat"]["Cultivar"] = cultivar_code
-        if "crop" in scenario and isinstance(scenario["crop"], dict):
-            scenario["crop"]["cultivar"] = cultivar_code
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Appeler la vraie fonction de V1 adaptée
-    writeSNX_clim(
-        DSSAT_PATH=DSSAT_PATH,
-        station=station,
-        planting_date=planting_date,
-        crop=crop,
-        cultivar=cultivar_code,
-        cultivar_name=cultivar_name,
-        soil_type=soil_type,
-        initial_soil_moisture=0.5,  # Default
-        initial_soil_no3_content=1,  # Default
-        planting_density=planting_density,
-        scenario=scenario_name,
-        fert_app=fert_app,
-        df_fert=df_fert,
-        p_sim="P_no",
-        p_level="M",
-        irrig_app=irrig_app,
-        irrig_method=irrig_method,
-        df_irrig=df_irrig,
-        ir_depth=30,
-        ir_threshold=50,
-        ir_eff=1.0,
-        output_dir=output_dir
+    crop = d.get("Crop", "ML")
+    scenario_name = d.get("sce_name", "S001")
+    stn_name = (d.get("stn_name", "BAMBY") or "BAMBY").upper()
+    stn_name = re.sub(r"[^A-Z0-9]", "", stn_name)[:5] or "BAMBY"
+    cultivar_input = d.get("Cultivar", "IB0044")
+    planting_density = int(d.get("plt_density", 5))
+    planting_date = d.get("PltDate", "2026-06-15")
+
+    soil_code = (
+        scenario.get("location", {}).get("soil_code")
+        or d.get("soil")
+        or "IB00000010"
     )
-    
-    return Path(output_dir) / f"CL{crop}{scenario_name[:4]}.SNX"
+    soil_code = str(soil_code)[:10]
+
+    cultivar_code, cultivar_name = resolve_cultivar(crop, cultivar_input, "/app/dssat")
+
+    pdate, icdat, hdate = dssat_dates(planting_date)
+
+    snx_name = f"CL{crop}{scenario_name[:4]}.SNX"
+    snx_path = output_dir / snx_name
+
+    # DSSAT Fortran parsers are safer with DOS line endings.
+    with open(snx_path, "w", encoding="ascii", newline="\r\n") as f:
+        f.write("*EXP.DETAILS: SIMAGRI\n\n")
+
+        f.write("*GENERAL\n")
+        f.write("@PEOPLE\nSIMAGRI\n")
+        f.write("@ADDRESS\nSenegal\n")
+        f.write("@SITE\nSenegal\n")
+        f.write("@ PAREA  PRNO  PLEN  PLDR  PLSP  PLAY HAREA  HRNO  HLEN  HARM.........\n")
+        f.write("    -99   -99   -99   -99   -99   -99   -99   -99   -99   -99\n\n")
+
+        f.write("*TREATMENTS                        -------------FACTOR LEVELS------------\n")
+        f.write("@N R O C TNAME.................... CU FL SA IC MP MI MF MR MC MT ME MH SM\n")
+        f.write(" 1 1 0 0 SIMAGRI                    1  1  0  1  1  0  0  0  0  0  0  0  1\n\n")
+
+        f.write("*CULTIVARS\n")
+        f.write("@C CR INGENO CNAME\n")
+        f.write(f" 1 {crop:<2} {cultivar_code:<6} {cultivar_name}\n\n")
+
+        f.write("*FIELDS\n")
+        id_field = f"{stn_name[:4]}0001"
+        f.write("@L ID_FIELD WSTA....  FLSA  FLOB  FLDT  FLDD  FLDS  FLST SLTX  SLDP  ID_SOIL    FLNAME\n")
+        f.write(f" 1 {id_field:<8} {stn_name:<5}     -99   -99 DR000   -99   -99     0   -99    50  {soil_code:<10} -99\n")
+        f.write("@L ...........XCRD ...........YCRD .....ELEV .............AREA .SLEN .FLWR .SLAS FLHST FHDUR\n")
+        f.write(" 1            -99             -99       -99               -99   -99   -99   -99   -99   -99\n\n")
+
+        f.write("*INITIAL CONDITIONS\n")
+        f.write("@C   PCR ICDAT  ICRT  ICND  ICRN  ICRE  ICWD ICRES ICREN ICREP ICRIP ICRID ICNAME\n")
+        f.write(f" 1    {crop:<2} {icdat:>5}   -99     0     1     1   -99     0     0     0   100    15 -99\n")
+        f.write("@C  ICBL  SH2O  SNH4  SNO3\n")
+        f.write(" 1    20  .147    .6   1.5\n")
+        f.write(" 1    30  .197    .6   1.5\n\n")
+
+        f.write("*PLANTING DETAILS\n")
+        f.write("@P PDATE EDATE  PPOP  PPOE  PLME  PLDS  PLRS  PLRD  PLDP  PLWT  PAGE  PENV  PLPH  SPRL                        PLNAME\n")
+        f.write(
+            f" 1 {pdate:>5}   -99 {planting_density:>6} {planting_density:>5}     S     R    60     0     5   -99   -99   -99   -99   -99                        FIELD\n\n"
+        )
+
+        f.write("*FERTILIZERS (INORGANIC)\n")
+        f.write("@F FDATE  FMCD  FACD  FDEP  FAMN  FAMP  FAMK  FAMC  FAMO  FOCD FERNAME\n")
+        write_fertilizers(f, scenario)
+        f.write("\n")
+
+        f.write("*SIMULATION CONTROLS\n")
+        f.write("@N GENERAL     NYERS NREPS START SDATE RSEED SNAME.................... SMODEL\n")
+        f.write(f" 1 GE              1     1     S {icdat:>5}  2150 DEFAULT SIMULATION CONTR  {crop}CER\n")
+        f.write("@N OPTIONS     WATER NITRO SYMBI PHOSP POTAS DISES  CHEM  TILL   CO2\n")
+        f.write(" 1 OP              Y     Y     Y     N     N     N     N     N     D\n")
+        f.write("@N METHODS     WTHER INCON LIGHT EVAPO INFIL PHOTO HYDRO NSWIT MESOM MESEV MESOL\n")
+        f.write(" 1 ME              M     M     E     R     S     C     R     1     G     S     2\n")
+        f.write("@N MANAGEMENT  PLANT IRRIG FERTI RESID HARVS\n")
+        f.write(" 1 MA              R     N     D     N     M\n")
+        f.write("@N OUTPUTS     FNAME OVVEW SUMRY FROPT GROUT CAOUT WAOUT NIOUT MIOUT DIOUT VBOSE CHOUT OPOUT FMOPT\n")
+        f.write(" 1 OU              N     Y     Y     1     N     N     N     N     N     N     N     N     Y     A\n\n")
+
+        f.write("@  AUTOMATIC MANAGEMENT\n")
+        f.write("@N PLANTING    PFRST PLAST PH2OL PH2OU PH2OD PSTMX PSTMN\n")
+        f.write(f" 1 PL          {pdate:>5} {pdate:>5}    40   100    30    40    10\n")
+        f.write("@N IRRIGATION  IMDEP ITHRL ITHRU IROFF IMETH IRAMT IREFF\n")
+        f.write(" 1 IR             30    50   100 GS000 IR001    10     1\n")
+        f.write("@N NITROGEN    NMDEP NMTHR NAMNT NCODE NAOFF\n")
+        f.write(" 1 NI              5    50    25 FE005 GS000\n")
+        f.write("@N RESIDUES    RIPCN RTIME RIDEP\n")
+        f.write(" 1 RE            100     1    20\n")
+        f.write("@N HARVEST     HFRST HLAST HPCNP HPCNR\n")
+        f.write(f" 1 HA              0 {hdate:>5}   100     0\n")
+
+    print(f"SNX file written: {snx_path}")
+    return snx_path
 
 
-def create_irrig_df(irrig_plan):
-    """Convertir le plan d'irrigation en DataFrame"""
-    if not irrig_plan:
-        return pd.DataFrame({"DAP": [], "WAmount": []})
-    
-    data = []
-    for ir in irrig_plan:
-        data.append({
-            "DAP": ir.get("doy", 0),
-            "WAmount": ir.get("mm", 0)
-        })
-    
-    return pd.DataFrame(data)
+def dssat_dates(planting_date):
+    dt = parse_date(planting_date)
+    doy = dt.timetuple().tm_yday
+    pdate = f"{dt.year % 100:02d}{doy:03d}"
+
+    ic_dt = dt - timedelta(days=1)
+    icdat = f"{ic_dt.year % 100:02d}{ic_dt.timetuple().tm_yday:03d}"
+
+    hv_dt = dt + timedelta(days=210)
+    hdate = f"{hv_dt.year % 100:02d}{hv_dt.timetuple().tm_yday:03d}"
+    return pdate, icdat, hdate
 
 
-def create_fert_df(fert_plan):
-    """Convertir le plan de fertilisation en DataFrame"""
-    if not fert_plan:
-        return pd.DataFrame({"DAP": [], "NAmount": [], "PAmount": [], "KAmount": []})
-    
-    data = []
-    for f in fert_plan:
-        data.append({
-            "DAP": f.get("doy", 0),
-            "NAmount": f.get("N", 0),
-            "PAmount": f.get("P", 0),
-            "KAmount": f.get("K", 0)
-        })
-    
-    return pd.DataFrame(data)
+def parse_date(value):
+    value = str(value).strip()
+    for fmt in ("%Y-%m-%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"Unsupported date format: {value}")
 
 
 def resolve_cultivar(crop, cultivar, dssat_path):
-    """
-    Vérifie que le cultivar existe dans le fichier .CUL.
-    Si non trouvé, utilise le premier cultivar valide.
-    """
     cul_file = CROP_CUL_FILES.get(crop)
     if not cul_file:
-        return cultivar, None
+        return str(cultivar)[:6], "SIMAGRI"
 
     cul_path = Path(dssat_path) / cul_file
     if not cul_path.exists():
-        return cultivar, None
+        return str(cultivar)[:6], "SIMAGRI"
 
-    candidates = []
-    try:
-        with open(cul_path, "r", encoding="latin-1", errors="ignore") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith(("*", "!")):
-                    continue
-                parts = line.split()
-                if not parts:
-                    continue
-                code = parts[0]
-                if not re.match(r"^[A-Z0-9]{6}$", code):
-                    continue
-                name = parts[1] if len(parts) > 1 else None
-                candidates.append((code, name))
-                if code == cultivar:
-                    return code, name
-    except Exception:
-        return cultivar, None
+    target = str(cultivar).strip().upper()
+    first = None
 
-    if candidates:
-        return candidates[0]
+    with open(cul_path, "r", encoding="latin-1", errors="ignore") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith(("!", "*", "@")):
+                continue
+            parts = re.split(r"\s+", line)
+            code = parts[0].upper()
+            if not re.match(r"^[A-Z0-9]{6}$", code):
+                continue
+            name = parts[1] if len(parts) > 1 else "SIMAGRI"
+            if first is None:
+                first = (code, name)
+            if code == target:
+                return code, name
 
-    return cultivar, None
+    if first:
+        return first
+    return str(cultivar)[:6], "SIMAGRI"
 
 
-def writeSNX_clim(DSSAT_PATH, station, planting_date, crop, cultivar, cultivar_name, soil_type, 
-                  initial_soil_moisture, initial_soil_no3_content, planting_density, 
-                  scenario, fert_app, df_fert, p_sim, p_level, irrig_app, 
-                  irrig_method, df_irrig, ir_depth, ir_threshold, ir_eff, output_dir):
-    """
-    Version adaptée de writeSNX_clim de V1 pour SIMAGRI V2
-    """
-    
-    # Convertir la date de format YYYYMMDD à YYYYDOY
-    try:
-        date_object = datetime.datetime.strptime(planting_date, '%Y%m%d').date()
-    except:
-        # Si format différent, essayer %Y-%m-%d
-        date_object = datetime.datetime.strptime(planting_date, '%Y-%m-%d').date()
-    
-    plt_doy = date_object.timetuple().tm_yday
-    plt_year = date_object.year
-    
-    # ICDAT (initial condition date - jour avant semis)
-    IC_date = plt_year * 1000 + (plt_doy - 1)
-    ICDAT = str(IC_date)
-    
-    # PDATE (planting date)
-    PDATE = str(plt_year)[2:] + str(plt_doy).zfill(3)
-    
-    # Harvest date (environ 210 jours après semis)
-    hv_doy = plt_doy + 210
-    if hv_doy > 365:
-        hv_doy = hv_doy - 365
-    
-    # Nombre d'années = 1 pour maintenant
-    NYERS = "1"
-    SDATE = ICDAT
-    
-    # Parseir le cultivar
-    if len(cultivar) >= 7:
-        INGENO = cultivar[0:6]
-        CNAME = cultivar[7:]
-    else:
-        INGENO = cultivar
-        CNAME = cultivar_name or "SIMAGRI"
-    
-    # Soil info
-    ID_SOIL = soil_type[0:10]
-    PPOP = planting_density
-    
-    # Irrigation & Fertilisation flags
-    if irrig_app == "repr_irrig":
-        IRRIG = 'D'
-        MI = "1"
-    elif irrig_app == 'auto_irrig':
-        IRRIG = 'A'
-        MI = "1"
-    else:
-        IRRIG = 'N'
-        MI = "0"
-    
-    if fert_app == "Fert":
-        FERTI = 'D'
-        MF = "1"
-    else:
-        FERTI = 'N'
-        MF = "0"
-    
-    # Ouvrir le template SNX
-    temp_snx = path.join(DSSAT_PATH, f"SN{crop}TEMP.SNX")
-    snx_name = f"CL{crop}{scenario[:4]}.SNX"
-    SNX_fname = path.join(output_dir, snx_name)
-    
-    print(f"📝 Reading template: {temp_snx}")
-    print(f"📝 Writing SNX: {SNX_fname}")
-    
-    try:
-        with open(temp_snx, "r") as fr, open(SNX_fname, "w") as fw:
-            # Lire les 14 premières lignes du template
-            for line in range(0, 14):
-                temp_str = fr.readline()
-                fw.write(temp_str)
-            
-            # Lire et écrire la ligne de traitement du template (évite les erreurs d'alignement)
-            FL = "1"
-            temp_str = fr.readline()
-            fw.write(temp_str)
-
-            # Lire et écrire la ligne vide suivante
-            temp_str = fr.readline()
-            fw.write(temp_str)
-
-            # Écrire *CULTIVARS
-            # 0) écrire la ligne *CULTIVARS telle quelle
-            temp_str = fr.readline()
-            fw.write(temp_str)
-            
-            # Écrire *CULTIVARS
-            # 1) écrire la ligne d'en-tête telle quelle
-            temp_str = fr.readline()
-            fw.write(temp_str)
-            # 2) écrire la ligne de données en remplaçant culture/cultivar
-            temp_str = fr.readline()
-            new_str = temp_str[0:3] + crop + temp_str[5:6] + INGENO + temp_str[12:13] + CNAME
-            fw.write(new_str)
-            fw.write(" \n")
-            
-            # Lire et écrire jusqu'à *FIELDS
-            for line in range(0, 2):
-                temp_str = fr.readline()
-                fw.write(temp_str)
-            
-            # Écrire *FIELDS
-            WSTA_ID = station
-            ID_FIELD = WSTA_ID + "0001"
-            SLTX = "SL"
-            SLDP = "50"
-
-            # Écrire l'en-tête @L ID_FIELD...
-            temp_str = fr.readline()
-            fw.write(temp_str)
-
-            # Écrire la ligne de données FIELD
-            fw.write("{0:2s} {1:8s} {2:5s}{3:3s}{4:6s}{5:4s}  {6:10s}{7:4s}".format(
-                FL.rjust(2), ID_FIELD[:8], WSTA_ID.rjust(5),
-                "       -99   -99   -99   -99   -99   -99 ",
-                SLTX.ljust(6), SLDP.rjust(4), ID_SOIL,
-                " -99"))
-            fw.write(" \n")
-
-            # Écrire l'en-tête coordonnées et la ligne de données template
-            temp_str = fr.readline()
-            fw.write(temp_str)
-            temp_str = fr.readline()
-            fw.write(temp_str)
-
-            # Ligne vide après les coordonnées
-            temp_str = fr.readline()
-            fw.write(temp_str)
-            
-            # Sauter les sections jusqu'à *INITIAL CONDITIONS
-            for nline in range(0, 50):
-                temp_str = fr.readline()
-                if "*INITIAL CONDITIONS" in temp_str:
-                    fw.write(temp_str)
-                    break
-            
-            # Écrire *INITIAL CONDITIONS
-            temp_str = fr.readline()  # @C   PCR ICDAT
-            fw.write(temp_str)
-            temp_str = fr.readline()
-            new_str = temp_str[0:3] + crop.rjust(3) + " " + ICDAT + temp_str[16:]
-            fw.write(new_str)
-            fw.write(" \n")
-            
-            # Lire jusqu'à *PLANTING
-            for nline in range(0, 50):
-                temp_str = fr.readline()
-                if "*PLANTING" in temp_str:
-                    fw.write(temp_str)
-                    break
-            
-            # Écrire *PLANTING DETAILS
-            temp_str = fr.readline()  # @P PDATE EDATE
-            fw.write(temp_str)
-            temp_str = fr.readline()
-            PPOE = PPOP
-            new_str = temp_str[0:3] + PDATE + "   -99" + PPOP.rjust(6) + PPOE.rjust(6) + temp_str[26:]
-            fw.write(new_str)
-            fw.write("  \n")
-            
-            # Écrire *IRRIGATION si nécessaire
-            if irrig_app == 'repr_irrig' and len(df_irrig) > 0:
-                fw.write('*IRRIGATION AND WATER MANAGEMENT' + "\n")
-                fw.write('@I  EFIR  IDEP  ITHR  IEPT  IOFF  IAME  IAMT IRNAME' + "\n")
-                fw.write(' 1     1    30    50   100 GS000 IR001    10 -99' + "\n")
-                fw.write('@I IDATE  IROP IRVAL' + "\n")
-                
-                df_irrig = df_irrig.astype(float)
-                df_filtered = df_irrig[(df_irrig["DAP"] >= 0) & (df_irrig["WAmount"] >= 0)]
-                
-                for i, row in df_filtered.iterrows():
-                    fw.write(' 1   ' + str(int(row["DAP"])).rjust(3) + " " + irrig_method + " " + str(int(row["WAmount"])).rjust(5) + "\n")
-                fw.write(" \n")
-            
-            # Lire jusqu'à *FERTILIZERS
-            for nline in range(0, 50):
-                temp_str = fr.readline()
-                if "*FERTILIZERS" in temp_str:
-                    fw.write(temp_str)
-                    break
-            
-            # Écrire *FERTILIZERS
-            temp_str = fr.readline()  # @F FDATE
-            fw.write(temp_str)
-            temp_str = fr.readline()
-            
-            if fert_app == "Fert" and len(df_fert) > 0:
-                df_fert = df_fert.astype(float)
-                df_filtered = df_fert[(df_fert["DAP"] >= 0) & (df_fert["NAmount"] >= 0)]
-                
-                for i, row in df_filtered.iterrows():
-                    new_str = temp_str[0:5] + str(int(row["DAP"])).rjust(3) + " FE005 AP001     5 " + str(int(row["NAmount"])).rjust(5) + " " + str(int(row["PAmount"])).rjust(5) + " " + str(int(row["KAmount"])).rjust(5) + temp_str[44:]
-                    fw.write(new_str)
-                fw.write(" \n")
-            
-            fw.write("  \n")
-            
-            # Lire jusqu'à *SIMULATION
-            for nline in range(0, 50):
-                temp_str = fr.readline()
-                if "*SIMULATION" in temp_str:
-                    fw.write(temp_str)
-                    break
-            
-            # Écrire *SIMULATION CONTROLS
-            temp_str = fr.readline()
-            fw.write(temp_str)
-            temp_str = fr.readline()
-            new_str = temp_str[0:17] + NYERS.rjust(3) + temp_str[20:33] + SDATE + temp_str[38:]
-            fw.write(new_str)
-            
-            # Lire et écrire le reste
-            for line in range(0, 20):
-                temp_str = fr.readline()
-                if temp_str.strip():
-                    fw.write(temp_str)
-                else:
-                    break
-    
-    except Exception as e:
-        print(f"❌ ERROR writing SNX: {e}")
-        raise
-
-    print(f"✅ SNX file written: {SNX_fname}")
-    return Path(SNX_fname)
+def write_fertilizers(file_obj, scenario):
+    applications = scenario.get("fertilization", {}).get("applications", [])
+    row = 0
+    for app in applications:
+        doy = int(app.get("doy", -99))
+        n_val = float(app.get("N", 0))
+        p_val = float(app.get("P", 0))
+        k_val = float(app.get("K", 0))
+        if doy < 0:
+            continue
+        row += 1
+        file_obj.write(
+            f" {row:>1} {doy:>5} FE005 AP002     4 {n_val:>6.0f} {p_val:>6.0f} {k_val:>6.0f}   -99   -99   -99 -99\n"
+        )

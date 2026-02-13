@@ -177,7 +177,7 @@ def build_scenario_from_ui(
     dssat["TargetYr"] = hist_end_year
 
     # --- Sol
-    dssat["soil"] = "SN-N15Rain"
+    dssat["soil"] = soil_code
     dssat["iH2O"] = 0.5
     dssat["iNO3"] = 20
     dssat["plt_density"] = 5

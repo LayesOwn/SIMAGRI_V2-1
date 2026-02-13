@@ -16,7 +16,7 @@ except Exception:
 from datetime import date
 import dash_leaflet as dl
 from domain.crop import get_crop_options
-from domain.geography import get_department_options
+from domain.geography import get_department_options, get_soil_code_options
 import datetime
 current_year = datetime.datetime.now().year
 from domain.socio_eco import compute_labor_cost, compute_post_harvest_cost, compute_soil_preparation_cost, compute_total_socio_cost
@@ -71,16 +71,12 @@ def layout_main():
                                 )
                             ], md=4),
                             dbc.Col([
-                                    dbc.Label("Type de sol (chargé automatiquement)"),
+                                    dbc.Label("Sol DSSAT (charge automatiquement)"),
                                     dcc.Dropdown(
                                         id="soil_type",
-                                        options=[
-                                            {"label": "Sandy (Sableux)", "value": "S"},
-                                            {"label": "Sandy loam (Sablo-limoneux)", "value": "SL"},
-                                            {"label": "Loamy sand (Limon sableux)", "value": "LS"},
-                                        ],
+                                        options=get_soil_code_options(),
                                         value=None,
-                                        disabled=True   # 🔒 verrouillé
+                                        disabled=True
                                     ),
                                 ], md=4),
                             
@@ -581,3 +577,6 @@ def layout_main():
         ]),
 
     ], fluid=True)
+
+
+
