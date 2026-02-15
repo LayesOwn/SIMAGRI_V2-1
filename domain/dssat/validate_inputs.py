@@ -7,14 +7,23 @@ from pathlib import Path
 
 from domain.dssat.write_snx import CROP_CUL_FILES, resolve_cultivar
 
+SIM_CYCLE_DAYS = 210
+
 
 def _parse_planting_date(value):
     if value is None:
         return None
     if isinstance(value, datetime):
         return value.date()
-    s = str(value)
-    for fmt in ("%Y%m%d", "%Y-%m-%d"):
+    s = str(value).strip()
+    if not s:
+        return None
+
+    # Handle ISO datetime strings from UI/storage, e.g. 2026-06-15T00:00:00
+    if "T" in s:
+        s = s.split("T", 1)[0]
+
+    for fmt in ("%Y%m%d", "%Y-%m-%d", "%d/%m/%Y", "%Y/%m/%d", "%d-%m-%Y"):
         try:
             return datetime.strptime(s, fmt).date()
         except Exception:
@@ -129,14 +138,30 @@ def validate_dssat_inputs(scenario, base_dir):
             if not dates:
                 errors.append(f"WTH '{wth_path.name}' sans lignes météo valides")
             else:
-                pdate = _parse_planting_date(scenario.get("crop", {}).get("planting_date"))
+                pdate = _parse_planting_date(
+                    scenario.get("crop", {}).get("planting_date")
+                    or scenario.get("dssat", {}).get("PltDate")
+                )
                 if not pdate:
-                    errors.append("Date de semis invalide (format attendu YYYYMMDD ou YYYY-MM-DD)")
+                    errors.append(
+                        "Date de semis invalide (formats acceptes: YYYYMMDD, YYYY-MM-DD, DD/MM/YYYY)"
+                    )
                 else:
                     if pdate < min(dates) or pdate > max(dates):
                         errors.append(
                             f"WTH '{wth_path.name}' ne couvre pas la date de semis ({pdate})"
                         )
+                    else:
+                        # DSSAT lit le jour précédent l'initialisation et a besoin
+                        # de la météo jusqu'à la fin de cycle simulée.
+                        if pdate - timedelta(days=1) < min(dates):
+                            errors.append(
+                                f"WTH '{wth_path.name}' ne couvre pas J-1 avant semis ({pdate})"
+                            )
+                        if pdate + timedelta(days=SIM_CYCLE_DAYS) > max(dates):
+                            errors.append(
+                                f"WTH '{wth_path.name}' ne couvre pas la durée de cycle ({SIM_CYCLE_DAYS} j) depuis {pdate}"
+                            )
             if header and not all(k in header for k in ["SRAD", "TMAX", "TMIN", "RAIN"]):
                 warnings.append(
                     f"En-tête WTH '{wth_path.name}' incomplet: {header}"

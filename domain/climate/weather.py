@@ -1,4 +1,5 @@
 from pathlib import Path
+import math
 
 from domain.climate.enacts import load_enacts
 from domain.geography import get_department_gps, get_department_wth_code, get_department_options
@@ -9,6 +10,7 @@ def write_weather_for_department(department, output_dir, station_code=None):
     Génère un fichier météo DSSAT (.WTH) depuis data/enacts pour un département.
     """
     df = load_enacts(department).sort_values("date")
+    df = df.drop_duplicates(subset=["date"]).copy()
     lat, lon = get_department_gps(department)
     code = (station_code or get_department_wth_code(department) or "DEPT")[:4].upper()
 
@@ -16,6 +18,7 @@ def write_weather_for_department(department, output_dir, station_code=None):
     output_dir.mkdir(parents=True, exist_ok=True)
     filepath = output_dir / f"{code}.WTH"
 
+    written = 0
     with open(filepath, "w", encoding="ascii", newline="\r\n") as f:
         f.write(f"*WEATHER DATA : {department}\n")
         f.write("@ INSI      LAT     LONG  ELEV   TAV   AMP REFHT WNDHT\n")
@@ -23,11 +26,21 @@ def write_weather_for_department(department, output_dir, station_code=None):
         f.write("@DATE  SRAD  TMAX  TMIN  RAIN\n")
 
         for _, r in df.iterrows():
+            tmax = float(r["tmax"])
+            tmin = float(r["tmin"])
+            rain = float(r["prcp"])
+            if not (math.isfinite(tmax) and math.isfinite(tmin) and math.isfinite(rain)):
+                continue
+            # DSSAT v4.7 parser expects DATE mainly in YYDDD (5 chars).
             token = r["date"].strftime("%y%j")
             srad = 18.0  # SRAD placeholder si non disponible dans ENACTS
             f.write(
-                f"{token:>5} {srad:6.1f} {float(r['tmax']):6.1f} {float(r['tmin']):6.1f} {float(r['prcp']):6.1f}\n"
+                f"{token:>5} {srad:6.1f} {tmax:6.1f} {tmin:6.1f} {rain:6.1f}\n"
             )
+            written += 1
+
+    if written == 0:
+        raise ValueError(f"Aucune ligne météo valide pour {department}")
 
     return filepath
 

@@ -159,7 +159,8 @@ def layout_main():
                                 dcc.DatePickerSingle(
                                     id="planting_date",
                                     date=date(2026, 6, 15),
-                                    display_format="DD/MM/YYYY"
+                                    display_format="DD/MM/YYYY",
+                                    clearable=False
                                 )
                             ], md=4),
                             dbc.Col([
@@ -443,14 +444,15 @@ def layout_main():
                         # --- Mode de simulation ---
                         dbc.Row([
                             dbc.Col([
-                                dbc.Label("Type de simulation"),
+                                dbc.Label("Scénarios simulés"),
                                 dbc.RadioItems(
                                     id="simulation_mode",
                                     options=[
-                                        {"label": "Simuler un seul scénario", "value": "single"},
-                                
+                                        {"label": "1 scénario", "value": 1},
+                                        {"label": "2 scénarios", "value": 2},
+                                        {"label": "3 scénarios", "value": 3},
                                     ],
-                                    value="single",
+                                    value=1,
                                     inline=True
                                 )
                             ])
@@ -467,7 +469,7 @@ def layout_main():
                                     color="primary",
                                     className="w-100"
                                 ),
-                                md=6
+                                md=4
                             ),
                             dbc.Col(
                                 dbc.Button(
@@ -476,7 +478,16 @@ def layout_main():
                                     color="success",
                                     className="w-100"
                                 ),
-                                md=6
+                                md=4
+                            ),
+                            dbc.Col(
+                                dbc.Button(
+                                    "Réinitialiser",
+                                    id="reset_scenarios",
+                                    color="danger",
+                                    className="w-100"
+                                ),
+                                md=4
                             ),
                         ]),
 

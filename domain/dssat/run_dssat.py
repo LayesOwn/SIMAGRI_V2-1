@@ -4,6 +4,7 @@ import os
 import subprocess
 from pathlib import Path
 import shutil
+import re
 
 
 # Mapping cultures → exécutables DSSAT
@@ -89,6 +90,19 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
         print(f"🚀 Running: {cmd}")
         
         returncode = os.system(cmd)
+
+        # DSSAT may return shell code 0 even if model ends with internal error.
+        warning_file = Path("WARNING.OUT")
+        if warning_file.exists():
+            try:
+                warning_txt = warning_file.read_text(encoding="latin-1", errors="ignore")
+                m = re.search(r"Simulation ended with error code\s+(\d+)", warning_txt)
+                if m:
+                    internal_code = int(m.group(1))
+                    print(f"❌ DSSAT internal error code detected in WARNING.OUT: {internal_code}")
+                    returncode = internal_code if internal_code != 0 else 1
+            except Exception:
+                pass
         
         # 6️⃣ RÉSULTAT
         if returncode == 0:

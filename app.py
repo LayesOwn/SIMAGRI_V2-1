@@ -74,8 +74,8 @@ def display_page(pathname):
 # ==================================================
 if __name__ == "__main__":
     # Configuration pour Docker et local
-    host = os.getenv('SIMAGRI_HOST', '127.0.0.1')
-    debug = os.getenv('SIMAGRI_DEBUG', 'True').lower() == 'true'
+    host = os.getenv('SIMAGRI_HOST', '0.0.0.0')
+    debug = os.getenv('SIMAGRI_DEBUG', 'False').lower() == 'true'
     
     app.run_server(
         debug=debug,

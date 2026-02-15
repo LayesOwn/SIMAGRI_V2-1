@@ -12,15 +12,16 @@ except Exception:
 from dash.dependencies import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
 import json
+import csv
 from pathlib import Path
 import re
 from datetime import datetime, timedelta
 import unicodedata
 
 # --- Imports domaine métier
-from domain.geography import get_department_gps, get_department_soil
+from domain.geography import get_department_gps, get_department_soil, get_department_options
 from domain.climate.enacts import load_enacts, compute_probabilistic_onset
-from domain.climate.weather import ensure_weather_for_scenario, generate_all_department_wth
+from domain.climate.weather import ensure_weather_for_scenario
 from domain.irrigation import get_irrigation_schedule, compute_irrigation_cost
 from domain.fertilisation import (
     compute_fertilization_cost,
@@ -72,11 +73,64 @@ print(f"✅ BASE_DIR = {BASE_DIR}")
 print(f"   Existe ? {BASE_DIR.exists()}")
 print(f"   dssat/ existe ? {(BASE_DIR / 'dssat').exists()}")
 print(f"   Fichiers .WTH : {len(list((BASE_DIR / 'dssat').glob('*.WTH')))}")
+# IMPORTANT:
+# Ne pas générer tous les WTH au démarrage: cela peut bloquer le boot de Dash.
+# Les fichiers météo sont générés à la demande par scénario (ensure_weather_for_scenario).
 try:
-    generated = generate_all_department_wth(BASE_DIR / "dssat")
-    print(f"   WTH générés (départements): {len(generated)}")
+    invalid_depts = []
+    report_rows = []
+    for opt in get_department_options():
+        dept = opt.get("value")
+        try:
+            _df = load_enacts(dept)
+            if _df is None or _df.empty:
+                invalid_depts.append(dept)
+                report_rows.append({
+                    "departement": dept,
+                    "statut_enacts": "INVALIDE",
+                    "date_min": "",
+                    "date_max": "",
+                    "nb_lignes_valides": 0,
+                })
+            else:
+                report_rows.append({
+                    "departement": dept,
+                    "statut_enacts": "OK",
+                    "date_min": str(_df["date"].min().date()),
+                    "date_max": str(_df["date"].max().date()),
+                    "nb_lignes_valides": int(len(_df)),
+                })
+        except Exception:
+            invalid_depts.append(dept)
+            report_rows.append({
+                "departement": dept,
+                "statut_enacts": "INVALIDE",
+                "date_min": "",
+                "date_max": "",
+                "nb_lignes_valides": 0,
+            })
+
+    report_path = BASE_DIR / "data" / "enacts_validation_report.csv"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(report_path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(
+            f,
+            fieldnames=[
+                "departement",
+                "statut_enacts",
+                "date_min",
+                "date_max",
+                "nb_lignes_valides",
+            ],
+        )
+        w.writeheader()
+        w.writerows(report_rows)
+    print(f"   📄 Rapport ENACTS: {report_path}")
+
+    if invalid_depts:
+        print(f"   ⚠️ Départements sans données ENACTS valides ({len(invalid_depts)}): {', '.join(invalid_depts)}")
 except Exception as e:
-    print(f"   ⚠️ génération WTH départements: {e}")
+    print(f"   ⚠️ Audit ENACTS impossible: {e}")
 
 GEOJSON_PATH = BASE_DIR / "data" / "geojson" / "senegal_departments.json"
 
@@ -94,7 +148,7 @@ def _norm_name(value):
 # ==========================================================
 def scenario_to_table_row(s):
     """
-    Convertit un scénario complet en une ligne pour la table d'affichage
+    Convertit un scenario complet en une ligne pour la table d'affichage.
     """
     economy = s.get("economy", {})
     fert_cost = economy.get("NFertCost", 0) or 0
@@ -102,32 +156,25 @@ def scenario_to_table_row(s):
     production_cost = economy.get("FixedCosts", 0) or 0
     total_cost = fert_cost + irrig_cost + production_cost
 
-    base = {
+    def _amt(v):
+        try:
+            return str(int(round(float(v or 0))))
+        except Exception:
+            return "0"
+
+    return {
         "ID": s["id_scenario"],
-        "Département": s["location"]["department"],
+        "Departement": s["location"]["department"],
         "Culture": s["crop"]["code"],
         "Cycle": s["crop"]["cycle"],
         "Semis": s["crop"]["planting_date"],
-        "Semis conseillé": s["climate"]["recommended_sowing_date"] or "-",
-        "P(%)": (
-            int(100 * s["climate"]["recommended_sowing_prob"])
-            if s["climate"]["recommended_sowing_prob"] is not None
-            else "-"
-        ),
-        "Fertilisation": s["fertilization"]["enabled"],
-        "Irrigation": s["irrigation"]["enabled"],
-        "Coût fertilisation (FCFA)": fert_cost,
-        "Coût irrigation (FCFA)": irrig_cost,
-        "Coût production (FCFA)": production_cost,
-        "Coût total (FCFA)": total_cost,
+        "Fertilisation": "Oui" if s["fertilization"].get("enabled") else "Non",
+        "Irrigation": "Oui" if s["irrigation"].get("enabled") else "Non",
+        "Cout fertilisation (FCFA)": _amt(fert_cost),
+        "Cout irrigation (FCFA)": _amt(irrig_cost),
+        "Cout production (FCFA)": _amt(production_cost),
+        "Cout total (FCFA)": _amt(total_cost),
     }
-
-    dssat = s.get("dssat", {})
-    # Ajouter tous les champs DSSAT même s'ils sont vides
-    for col in DSSAT_COLUMNS:
-        base[f"DSSAT:{col}"] = dssat.get(col, "")
-
-    return base
 
 
 def get_triggered_id():
@@ -220,7 +267,15 @@ def build_table(scenarios, sim_results):
         row["DSSAT:MAT"] = m.get("MAT", "-")
         table_data.append(row)
 
-    columns = [{"name": k, "id": k} for k in table_data[0].keys()] if table_data else []
+    col_order = [
+        "ID", "Departement", "Culture", "Cycle", "Semis",
+        "Fertilisation", "Irrigation",
+        "Cout fertilisation (FCFA)", "Cout irrigation (FCFA)",
+        "Cout production (FCFA)", "Cout total (FCFA)",
+        "DSSAT:Status", "DSSAT:HARWT", "DSSAT:TOPWT",
+        "DSSAT:RAIN", "DSSAT:TIRR", "DSSAT:CET", "DSSAT:MAT",
+    ]
+    columns = [{"name": c, "id": c} for c in col_order] if table_data else []
     return table_data, columns
 
 
@@ -277,6 +332,22 @@ def build_simulation_output(scenarios, sim_results, messages):
     ])
 
 
+SIM_CYCLE_DAYS = 210
+
+
+def _feasible_bounds_from_dates(dmin, dmax):
+    """
+    Borne semis avec marge DSSAT:
+    - J-1 doit exister
+    - +SIM_CYCLE_DAYS doit exister
+    """
+    min_ok = dmin + timedelta(days=1)
+    max_ok = dmax - timedelta(days=SIM_CYCLE_DAYS)
+    if max_ok < min_ok:
+        return dmin, dmax
+    return min_ok, max_ok
+
+
 def align_planting_date_to_wth_year(scenario, base_dir):
     """
     Aligne l'année de semis sur l'année couverte par le fichier WTH (si nécessaire).
@@ -299,14 +370,15 @@ def align_planting_date_to_wth_year(scenario, base_dir):
             return None
 
         dmin, dmax = min(dates), max(dates)
-        if dmin <= pdate <= dmax:
+        min_ok, max_ok = _feasible_bounds_from_dates(dmin, dmax)
+        if min_ok <= pdate <= max_ok:
             return None
 
-        target_year = dmax.year
-        doy = pdate.timetuple().tm_yday
-        max_doy = 366 if (target_year % 4 == 0 and (target_year % 100 != 0 or target_year % 400 == 0)) else 365
-        adj_doy = min(doy, max_doy)
-        new_date = (datetime(target_year, 1, 1) + timedelta(days=adj_doy - 1)).date()
+        # Clamp to feasible bounds (not only raw bounds).
+        if pdate < min_ok:
+            new_date = min_ok
+        else:
+            new_date = max_ok
 
         scenario["crop"]["planting_date"] = new_date.isoformat()
         if "dssat" in scenario and isinstance(scenario["dssat"], dict):
@@ -318,6 +390,26 @@ def align_planting_date_to_wth_year(scenario, base_dir):
         )
     except Exception:
         return None
+
+
+def _sanitize_planting_date_for_department(dept, planting_date):
+    """
+    Force une date de semis valide et couverte par ENACTS.
+    """
+    df = load_enacts(dept).sort_values("date")
+    if df.empty:
+        return None
+    dmin = df["date"].min().date()
+    dmax = df["date"].max().date()
+    min_ok, max_ok = _feasible_bounds_from_dates(dmin, dmax)
+    p = _parse_planting_date(planting_date)
+    if not p:
+        p = max_ok
+    if p < min_ok:
+        p = min_ok
+    if p > max_ok:
+        p = max_ok
+    return p.isoformat()
 
 
 # ==========================================================
@@ -721,48 +813,61 @@ def register_callbacks(app):
     )
     def update_onset(dept, y0, y1, current_planting_date):
         """
-        Calcule la date de semis recommandée basée sur les données ENACTS
+        Calcule la date de semis recommandee basee sur les donnees ENACTS.
+        Emp?che une date de semis invalide dans l'UI.
         """
         if not dept or not y0 or not y1:
             return "", None, None, current_planting_date
         try:
-            df = load_enacts(dept)
+            df = load_enacts(dept).sort_values("date")
+            if df.empty:
+                return (
+                    "Donnees ENACTS incompletes pour ce departement",
+                    None,
+                    None,
+                    current_planting_date,
+                )
+            full_min = df["date"].min().date()
+            full_max = df["date"].max().date()
+            min_ok, max_ok = _feasible_bounds_from_dates(full_min, full_max)
             d, p = compute_probabilistic_onset(df, y0, y1)
-            if not d:
-                return "Pas de date fiable", None, None, current_planting_date
 
-            # Année de référence pour le DatePicker
-            if current_planting_date:
-                ref_year = datetime.strptime(str(current_planting_date), "%Y-%m-%d").year
-            else:
-                ref_year = int(df["date"].dt.year.max())
+            cur_dt = _parse_planting_date(current_planting_date) or max_ok
 
-            onset_dt = datetime.strptime(f"{d} {ref_year}", "%d %B %Y").date()
-            min_dt = onset_dt - timedelta(days=10)
-            max_dt = onset_dt + timedelta(days=10)
-
-            if current_planting_date:
-                cur_dt = datetime.strptime(str(current_planting_date), "%Y-%m-%d").date()
+            if d:
+                ref_year = cur_dt.year
+                onset_dt = datetime.strptime(f"{d} {ref_year}", "%d %B %Y").date()
+                min_dt = max(min_ok, onset_dt - timedelta(days=10))
+                max_dt = min(max_ok, onset_dt + timedelta(days=10))
+                if onset_dt < min_dt:
+                    onset_dt = min_dt
+                elif onset_dt > max_dt:
+                    onset_dt = max_dt
                 selected_dt = cur_dt if (min_dt <= cur_dt <= max_dt) else onset_dt
+                msg = (
+                    f"{d} (P={p:.0%}) | Fenetre: "
+                    f"{min_dt.strftime('%d/%m/%Y')} - {max_dt.strftime('%d/%m/%Y')}"
+                )
             else:
-                selected_dt = onset_dt
+                min_dt = min_ok
+                max_dt = max_ok
+                selected_dt = cur_dt if (min_dt <= cur_dt <= max_dt) else max_ok
+                msg = (
+                    "Pas de date fiable | Fenetre ENACTS: "
+                    f"{min_dt.strftime('%d/%m/%Y')} - {max_dt.strftime('%d/%m/%Y')}"
+                )
 
-            msg = (
-                f"{d} (P={p:.0%}) | Fenêtre: "
-                f"{min_dt.strftime('%d/%m')} - {max_dt.strftime('%d/%m')}"
-            )
             return msg, min_dt.isoformat(), max_dt.isoformat(), selected_dt.isoformat()
         except Exception as e:
-            print(f"⚠️ Erreur calcul onset : {e}")
-            return "Erreur calcul", None, None, current_planting_date
+            print(f"Warning onset: {e}")
+            safe = _parse_planting_date(current_planting_date)
+            return "Erreur calcul", None, None, safe.isoformat() if safe else None
 
 
-    # ======================================================
-    # ➕ AJOUT SCÉNARIO
-    # ======================================================
     @app.callback(
         Output("scenario-store", "data"),
         Input("add_scenario", "n_clicks"),
+        Input("reset_scenarios", "n_clicks"),
         State("scenario-store", "data"),
         State("department", "value"),
         State("crop", "value"),
@@ -778,10 +883,12 @@ def register_callbacks(app):
         State("fert_total_cost", "value"),
         State("irrig_cost", "value"),
         State("total_cost", "value"),
+        State("simulation_mode", "value"),
         prevent_initial_call=True,
     )
     def add_scenario(
         n_clicks,
+        reset_n_clicks,
         stored_scenarios,
         department,
         crop,
@@ -797,6 +904,7 @@ def register_callbacks(app):
         fert_cost,
         irrig_cost,
         total_cost,
+        simulation_mode,
     ):
         """
         Ajoute un nouveau scénario aux scénarios stockés
@@ -806,16 +914,27 @@ def register_callbacks(app):
         # 🔒 Sécurité
         if stored_scenarios is None:
             stored_scenarios = []
+        trig = get_triggered_id()
+        if trig == "reset_scenarios":
+            return []
+        max_scenarios = int(simulation_mode or 1)
+        if len(stored_scenarios) >= max_scenarios:
+            return stored_scenarios
 
         # --------------------------------------------------
         # 1️⃣ Construire le scénario COMPLET depuis l'UI
         # --------------------------------------------------
+        safe_planting_date = _sanitize_planting_date_for_department(department, planting_date)
+        if not safe_planting_date:
+            print(f"⚠️ Scenario ignore: donnees ENACTS invalides pour {department}")
+            return stored_scenarios
+
         scenario = build_scenario_from_ui(
             scenario_id=f"S{len(stored_scenarios) + 1:03d}",
             department=department,
             crop=crop,
             cycle=cycle,
-            planting_date=planting_date,
+            planting_date=safe_planting_date,
             hist_start_year=hist_start_year,
             hist_end_year=hist_end_year,
             recommended_sowing_date=recommended_sowing_date,
@@ -864,11 +983,13 @@ def register_callbacks(app):
             Output("simulation-results-store", "data"),
         ],
         Input("run_simulation", "n_clicks"),
+        Input("reset_scenarios", "n_clicks"),
         State("scenario-store", "data"),
         State("simulation-results-store", "data"),
+        State("simulation_mode", "value"),
         prevent_initial_call=True,
     )
-    def run_dssat_from_ui(n_clicks, scenarios, sim_results):
+    def run_dssat_from_ui(n_clicks, reset_n_clicks, scenarios, sim_results, simulation_mode):
         """
         Lance la simulation DSSAT pour 1 ou plusieurs scénarios
         """
@@ -876,6 +997,10 @@ def register_callbacks(app):
         # ===============================
         # 1️⃣ Sécurité de base
         # ===============================
+        trig = get_triggered_id()
+        if trig == "reset_scenarios":
+            return "Ajoutez un ou plusieurs scénarios puis cliquez sur « Simuler ».", {}
+
         if not n_clicks:
             return "Cliquez sur le bouton Simuler", (sim_results or {})
 
@@ -884,6 +1009,8 @@ def register_callbacks(app):
 
         messages = []
         sim_results = dict(sim_results or {})
+        max_scenarios = int(simulation_mode or 1)
+        scenarios = scenarios[:max_scenarios]
 
         # ===============================
         # 2️⃣ Boucle sur les scénarios
@@ -891,6 +1018,23 @@ def register_callbacks(app):
         for i, scenario in enumerate(scenarios, start=1):
 
             try:
+                dept = scenario.get("location", {}).get("department")
+                try:
+                    enacts_df = load_enacts(dept).sort_values("date")
+                except Exception as e:
+                    enacts_df = None
+                    validation_msg = f"Fichier ENACTS introuvable/illisible pour '{dept}' ({e})"
+                else:
+                    validation_msg = None
+
+                if enacts_df is None or enacts_df.empty:
+                    sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
+                    messages.append(
+                        f"❌ Scénario {i} – erreurs DSSAT : "
+                        + (validation_msg or f"Données ENACTS invalides pour '{dept}' (aucune ligne météo valide)")
+                    )
+                    continue
+
                 # Génère un .WTH propre au département sélectionné et met à jour la station.
                 wth_path = ensure_weather_for_scenario(scenario, BASE_DIR / "dssat")
                 if wth_path:
