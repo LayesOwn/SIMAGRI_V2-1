@@ -508,7 +508,7 @@ def layout_main():
                 dl.Map(
                     id="map",
                     center=[14.15, -16.07],
-                    zoom=7,
+                    zoom=6,
                     style={"width": "100%", "height": "500px"},
                     children=[
                         dl.TileLayer(

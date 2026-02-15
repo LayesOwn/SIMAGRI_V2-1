@@ -17,6 +17,8 @@ from pathlib import Path
 import re
 from datetime import datetime, timedelta
 import unicodedata
+import plotly.graph_objects as go
+import copy
 
 # --- Imports domaine métier
 from domain.geography import get_department_gps, get_department_soil, get_department_options
@@ -203,27 +205,71 @@ def parse_summary_metrics(summary_path):
     except Exception:
         return {}
 
-    data_line = None
+    header_tokens = None
+    data_tokens = None
     for line in lines:
-        if line.strip().startswith("RUN") or line.strip().startswith("dap"):
+        s = line.strip()
+        if not s:
             continue
-        if not re.match(r"^\s*\d+\s+[A-Z]{2}\s+", line):
+        if s.startswith("@"):
+            header_tokens = s.split()
             continue
-        parts = line.split()
-        if len(parts) >= 14:
-            data_line = parts
-    if not data_line:
+        if header_tokens and re.match(r"^\s*\d+\s+", line):
+            data_tokens = s.split()
+            if len(data_tokens) >= 10:
+                break
+
+    if not header_tokens or not data_tokens:
         return {}
 
-    keys = [
-        "RUN", "TRT", "FLO", "MAT", "TOPWT", "HARWT",
-        "RAIN", "TIRR", "CET", "PESW", "TNUP", "TNLF", "TSON", "TSOC",
-    ]
-    out = {}
-    for i, key in enumerate(keys):
-        if i < len(data_line):
-            out[key] = data_line[i]
-    return out
+    row = {}
+    for i, h in enumerate(header_tokens):
+        if i < len(data_tokens):
+            row[h] = data_tokens[i]
+
+    # Prefer Summary.OUT keys, fallback to Evaluate.OUT when needed.
+    evaluate_row = {}
+    eval_path = Path(summary_path).with_name("Evaluate.OUT")
+    if eval_path.exists():
+        try:
+            ev_lines = eval_path.read_text(encoding="latin-1", errors="ignore").splitlines()
+            ev_header = None
+            ev_data = None
+            for ln in ev_lines:
+                ss = ln.strip()
+                if not ss:
+                    continue
+                if ss.startswith("@"):
+                    ev_header = ss.split()
+                    continue
+                if ev_header and re.match(r"^\s*\d+\s+", ln):
+                    ev_data = ss.split()
+                    if len(ev_data) >= 10:
+                        break
+            if ev_header and ev_data:
+                for i, h in enumerate(ev_header):
+                    if i < len(ev_data):
+                        evaluate_row[h] = ev_data[i]
+        except Exception:
+            pass
+
+    def pick(*keys, default="-"):
+        for k in keys:
+            if k in row and row[k] not in {"", "-99"}:
+                return row[k]
+            if k in evaluate_row and evaluate_row[k] not in {"", "-99"}:
+                return evaluate_row[k]
+        return default
+
+    return {
+        "FLO": pick("ADAPS", "FLO"),
+        "MAT": pick("MDAPS", "MAT"),
+        "TOPWT": pick("CWAM", "CWAMS", "TOPWT"),
+        "HARWT": pick("HWAM", "HWAMS", "HARWT"),
+        "RAIN": pick("PRCM", "RAIN"),
+        "TIRR": pick("IRCM", "TIRR"),
+        "CET": pick("ETCM", "CET"),
+    }
 
 
 def format_metrics_short(metrics):
@@ -252,6 +298,46 @@ def classify_dssat_status(metrics):
     return "SUCCES"
 
 
+def _planting_date_for_year(base_date, year):
+    dt = _parse_planting_date(base_date)
+    if not dt:
+        return None
+    month, day = dt.month, dt.day
+    while day >= 1:
+        try:
+            return datetime(year, month, day).date().isoformat()
+        except Exception:
+            day -= 1
+    return datetime(year, month, 1).date().isoformat()
+
+
+def _aggregate_history(history):
+    if not history:
+        return {"status": "ERREUR"}
+
+    def _vals(key):
+        vals = []
+        for r in history:
+            v = _num(r.get(key))
+            if v is not None:
+                vals.append(v)
+        return vals
+
+    agg = {"history": history, "years_ok": len(history)}
+    for k in ["HARWT", "TOPWT", "RAIN", "TIRR", "CET", "MAT"]:
+        vals = _vals(k)
+        agg[k] = f"{sum(vals)/len(vals):.1f}" if vals else "-"
+
+    # status by historical outcomes
+    if any(_num(r.get("HARWT")) not in (None, 0.0) for r in history):
+        agg["status"] = "SUCCES"
+    elif any(_num(r.get("TOPWT")) is not None for r in history):
+        agg["status"] = "VIDE"
+    else:
+        agg["status"] = "ERREUR"
+    return agg
+
+
 def build_table(scenarios, sim_results):
     table_data = []
     for s in scenarios:
@@ -265,6 +351,7 @@ def build_table(scenarios, sim_results):
         row["DSSAT:TIRR"] = m.get("TIRR", "-")
         row["DSSAT:CET"] = m.get("CET", "-")
         row["DSSAT:MAT"] = m.get("MAT", "-")
+        row["DSSAT:AnneesOK"] = m.get("years_ok", "-")
         table_data.append(row)
 
     col_order = [
@@ -273,22 +360,74 @@ def build_table(scenarios, sim_results):
         "Cout fertilisation (FCFA)", "Cout irrigation (FCFA)",
         "Cout production (FCFA)", "Cout total (FCFA)",
         "DSSAT:Status", "DSSAT:HARWT", "DSSAT:TOPWT",
-        "DSSAT:RAIN", "DSSAT:TIRR", "DSSAT:CET", "DSSAT:MAT",
+        "DSSAT:RAIN", "DSSAT:TIRR", "DSSAT:CET", "DSSAT:MAT", "DSSAT:AnneesOK",
     ]
     columns = [{"name": c, "id": c} for c in col_order] if table_data else []
     return table_data, columns
 
 
+def _num(v):
+    try:
+        x = float(v)
+        if x == -99:
+            return None
+        return x
+    except Exception:
+        return None
+
+
+def _advice_for_row(status, harwt, rain, tirr, cet):
+    if status != "SUCCES":
+        return "Verifier format/qualite des donnees (meteo, sol, cultivar, semis)."
+    if harwt is None or harwt <= 0:
+        if rain is not None and rain < 150:
+            return "Stress hydrique probable: avancer semis utile ou activer irrigation/fertilisation."
+        return "Rendement nul: verifier variet?, date de semis et fertilisation de base."
+    if rain is not None and cet is not None and rain + (tirr or 0) < 0.7 * cet:
+        return "Bilan eau limite: ajuster semis ou ajouter irrigation ciblee."
+    if harwt < 500:
+        return "Rendement faible: augmenter fertilisation NPK et optimiser date de semis."
+    return "Scenario correct: stabiliser les couts et reproduire les pratiques." 
+
+
 def build_simulation_output(scenarios, sim_results, messages):
     rows = []
+    labels = []
+    harwt_vals = []
+    topwt_vals = []
+    rain_vals = []
+    tirr_vals = []
+    cet_vals = []
+    mat_vals = []
+    cost_vals = []
+    revenue_vals = []
+    margin_vals = []
+    advices = []
+    metric_lines = []
+    histories = []
+
     for idx, s in enumerate(scenarios, start=1):
         sid = s.get("id_scenario")
         m = (sim_results or {}).get(sid, {})
         status = m.get("status", "ERREUR")
         color = "success" if status == "SUCCES" else ("warning" if status == "VIDE" else "danger")
+
+        harwt = _num(m.get("HARWT"))
+        topwt = _num(m.get("TOPWT"))
+        rain = _num(m.get("RAIN"))
+        tirr = _num(m.get("TIRR"))
+        cet = _num(m.get("CET"))
+        mat = _num(m.get("MAT"))
+
+        eco = s.get("economy", {})
+        total_cost = float((eco.get("NFertCost", 0) or 0) + (eco.get("IrrigCost", 0) or 0) + (eco.get("FixedCosts", 0) or 0))
+        crop_price = float(eco.get("CropPrice", 0) or 0)
+        revenue = (harwt or 0.0) * crop_price
+        margin = revenue - total_cost
+
         rows.append(
             html.Tr([
-                html.Td(f"Scénario {idx}"),
+                html.Td(f"Scenario {idx}"),
                 html.Td(sid or "-"),
                 html.Td(dbc.Badge(status, color=color, className="me-1")),
                 html.Td(m.get("HARWT", "-")),
@@ -300,25 +439,84 @@ def build_simulation_output(scenarios, sim_results, messages):
             ])
         )
 
+        labels.append(sid or f"S{idx:03d}")
+        harwt_vals.append(harwt or 0)
+        topwt_vals.append(topwt or 0)
+        rain_vals.append(rain or 0)
+        tirr_vals.append(tirr or 0)
+        cet_vals.append(cet or 0)
+        mat_vals.append(mat or 0)
+        cost_vals.append(total_cost)
+        revenue_vals.append(revenue)
+        margin_vals.append(margin)
+        advices.append((sid or f"Scenario {idx}", _advice_for_row(status, harwt, rain, tirr, cet)))
+        metric_lines.append(
+            f"{sid or f'Scenario {idx}'}: "
+            f"HARWT={m.get('HARWT','-')} kg/ha (rendement grain), "
+            f"TOPWT={m.get('TOPWT','-')} kg/ha (biomasse), "
+            f"RAIN={m.get('RAIN','-')} mm (pluie), "
+            f"TIRR={m.get('TIRR','-')} mm (irrigation), "
+            f"CET={m.get('CET','-')} mm (evapotranspiration), "
+            f"MAT={m.get('MAT','-')} j (maturite)."
+        )
+        h = m.get("history") or []
+        if h:
+            histories.append((sid or f"S{idx:03d}", h))
+
     n_success = sum(1 for v in (sim_results or {}).values() if v.get("status") == "SUCCES")
     n_empty = sum(1 for v in (sim_results or {}).values() if v.get("status") == "VIDE")
     n_error = max(0, len(scenarios) - n_success - n_empty)
 
+    fig_agro = go.Figure()
+    fig_agro.add_bar(name="HARWT", x=labels, y=harwt_vals)
+    fig_agro.add_bar(name="TOPWT", x=labels, y=topwt_vals)
+    fig_agro.update_layout(barmode="group", title="Performance agronomique (kg/ha)", yaxis_title="kg/ha", margin=dict(l=20, r=20, t=50, b=20))
+
+    fig_water = go.Figure()
+    fig_water.add_bar(name="RAIN", x=labels, y=rain_vals)
+    fig_water.add_bar(name="TIRR", x=labels, y=tirr_vals)
+    fig_water.add_bar(name="CET", x=labels, y=cet_vals)
+    fig_water.update_layout(barmode="group", title="Bilan hydrique (mm)", yaxis_title="mm", margin=dict(l=20, r=20, t=50, b=20))
+
+    fig_econ = go.Figure()
+    fig_econ.add_bar(name="Cout total", x=labels, y=cost_vals)
+    fig_econ.add_bar(name="Revenu brut", x=labels, y=revenue_vals)
+    fig_econ.add_bar(name="Marge", x=labels, y=margin_vals)
+    fig_econ.update_layout(
+        barmode="group",
+        title="Lecture economique (FCFA/ha)",
+        yaxis_title="FCFA/ha",
+        yaxis_tickformat=".0f",
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+
+    fig_hist = go.Figure()
+    for sid, h in histories:
+        xs = [r.get("year") for r in h]
+        ys = [(_num(r.get("HARWT")) or 0) for r in h]
+        fig_hist.add_scatter(x=xs, y=ys, mode="lines+markers", name=sid)
+    fig_hist.update_layout(
+        title="Analyse historique: rendement HARWT par annee",
+        xaxis_title="Annee",
+        yaxis_title="HARWT (kg/ha)",
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+
     return html.Div([
-        html.H5("📊 Résultat des simulations DSSAT", className="mb-3"),
+        html.H5("Resultat des simulations DSSAT", className="mb-3"),
         html.Ul([html.Li(m, className="mb-1") for m in messages]),
         dbc.Table(
             [
                 html.Thead(html.Tr([
-                    html.Th("Scénario"),
+                    html.Th("Scenario"),
                     html.Th("ID"),
                     html.Th("Status"),
-                    html.Th("HARWT"),
-                    html.Th("TOPWT"),
-                    html.Th("RAIN"),
-                    html.Th("TIRR"),
-                    html.Th("CET"),
-                    html.Th("MAT"),
+                    html.Th("HARWT (kg/ha)"),
+                    html.Th("TOPWT (kg/ha)"),
+                    html.Th("RAIN (mm)"),
+                    html.Th("TIRR (mm)"),
+                    html.Th("CET (mm)"),
+                    html.Th("MAT (jours)"),
                 ])),
                 html.Tbody(rows),
             ],
@@ -328,7 +526,34 @@ def build_simulation_output(scenarios, sim_results, messages):
             size="sm",
             className="mt-3",
         ),
-        html.P(f"Total: {len(scenarios)} | Succès: {n_success} | Vides: {n_empty} | Erreurs: {n_error}"),
+        dbc.Alert(
+            "Definitions: HARWT=rendement grain sec, TOPWT=biomasse aerienne seche, "
+            "RAIN=pluie cumulee de la campagne, TIRR=irrigation cumulee, "
+            "CET=evapotranspiration cumulée, MAT=jours jusqu'a maturite. "
+            "Une valeur 0 peut etre un resultat DSSAT valide (ex: pas de rendement ou pas d'irrigation).",
+            color="info",
+            className="mt-2",
+        ),
+        dbc.Alert(
+            html.Ul([html.Li(x) for x in metric_lines]),
+            color="secondary",
+            className="mt-2",
+        ),
+        html.P(f"Total: {len(scenarios)} | Succes: {n_success} | Vides: {n_empty} | Erreurs: {n_error}"),
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=fig_agro), md=6),
+            dbc.Col(dcc.Graph(figure=fig_water), md=6),
+        ]),
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=fig_econ), md=12),
+        ]),
+        dbc.Row([
+            dbc.Col(dcc.Graph(figure=fig_hist), md=12),
+        ]),
+        dbc.Card([
+            dbc.CardHeader("Conseils automatiques"),
+            dbc.CardBody(html.Ul([html.Li(f"{sid}: {txt}") for sid, txt in advices]))
+        ], className="mt-2")
     ])
 
 
@@ -991,171 +1216,123 @@ def register_callbacks(app):
     )
     def run_dssat_from_ui(n_clicks, reset_n_clicks, scenarios, sim_results, simulation_mode):
         """
-        Lance la simulation DSSAT pour 1 ou plusieurs scénarios
+        Lance la simulation DSSAT historique sur l'intervalle d'annees choisi.
         """
 
-        # ===============================
-        # 1️⃣ Sécurité de base
-        # ===============================
         trig = get_triggered_id()
         if trig == "reset_scenarios":
-            return "Ajoutez un ou plusieurs scénarios puis cliquez sur « Simuler ».", {}
+            return "Ajoutez un ou plusieurs scenarios puis cliquez sur Simuler.", {}
 
         if not n_clicks:
             return "Cliquez sur le bouton Simuler", (sim_results or {})
 
         if not scenarios or len(scenarios) == 0:
-            return "⚠️ Aucun scénario à simuler. Ajoutez au moins un scénario.", (sim_results or {})
+            return "Aucun scenario a simuler. Ajoutez au moins un scenario.", (sim_results or {})
 
         messages = []
         sim_results = dict(sim_results or {})
         max_scenarios = int(simulation_mode or 1)
         scenarios = scenarios[:max_scenarios]
 
-        # ===============================
-        # 2️⃣ Boucle sur les scénarios
-        # ===============================
         for i, scenario in enumerate(scenarios, start=1):
-
+            sid = scenario.get("id_scenario")
             try:
                 dept = scenario.get("location", {}).get("department")
                 try:
                     enacts_df = load_enacts(dept).sort_values("date")
                 except Exception as e:
-                    enacts_df = None
-                    validation_msg = f"Fichier ENACTS introuvable/illisible pour '{dept}' ({e})"
-                else:
-                    validation_msg = None
-
-                if enacts_df is None or enacts_df.empty:
-                    sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
-                    messages.append(
-                        f"❌ Scénario {i} – erreurs DSSAT : "
-                        + (validation_msg or f"Données ENACTS invalides pour '{dept}' (aucune ligne météo valide)")
-                    )
+                    sim_results[sid] = {"status": "ERREUR"}
+                    messages.append(f"Scenario {i} - ENACTS indisponible pour '{dept}' ({e})")
                     continue
 
-                # Génère un .WTH propre au département sélectionné et met à jour la station.
-                wth_path = ensure_weather_for_scenario(scenario, BASE_DIR / "dssat")
-                if wth_path:
-                    messages.append(f"Scénario {i} – météo chargée: {wth_path.name}")
-
-                adjust_msg = align_planting_date_to_wth_year(scenario, BASE_DIR)
-                if adjust_msg:
-                    messages.append(f"Scénario {i} – {adjust_msg}")
-
-                # 🔍 DEBUG
-                print(f"\n[SIMULATION] Scénario {i}")
-                print(f"  ID : {scenario.get('id_scenario')}")
-                print(f"  Irrigation activée : {scenario.get('irrigation', {}).get('enabled')}")
-                print(f"  Plan irrigation : {scenario.get('irrigation', {}).get('schedule')}")
-
-                # ===============================
-                # 3️⃣ Validation DSSAT (avant génération)
-                # ===============================
-                validation = validate_dssat_inputs(scenario, BASE_DIR)
-                if validation["errors"]:
-                    sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
-                    messages.append(
-                        f"❌ Scénario {i} – erreurs DSSAT : "
-                        + " | ".join(validation["errors"])
-                    )
+                if enacts_df.empty:
+                    sim_results[sid] = {"status": "ERREUR"}
+                    messages.append(f"Scenario {i} - ENACTS vide pour '{dept}'")
                     continue
-                if validation["warnings"]:
-                    messages.append(
-                        f"⚠️ Scénario {i} – avertissements DSSAT : "
-                        + " | ".join(validation["warnings"])
+
+                y0 = int(scenario.get("climate", {}).get("hist_start_year") or enacts_df["date"].dt.year.min())
+                y1 = int(scenario.get("climate", {}).get("hist_end_year") or enacts_df["date"].dt.year.max())
+                if y0 > y1:
+                    y0, y1 = y1, y0
+                years = list(range(y0, y1 + 1))
+                if len(years) > 60:
+                    years = years[:60]
+
+                base_date = scenario.get("crop", {}).get("planting_date")
+                history = []
+                year_errors = 0
+
+                for y in years:
+                    scenario_run = copy.deepcopy(scenario)
+                    run_date = _planting_date_for_year(base_date, y)
+                    if not run_date:
+                        year_errors += 1
+                        continue
+                    scenario_run.setdefault("crop", {})["planting_date"] = run_date
+                    scenario_run.setdefault("dssat", {})["PltDate"] = run_date
+
+                    # Meteo + station
+                    wth_path = ensure_weather_for_scenario(scenario_run, BASE_DIR / "dssat")
+                    if wth_path is None:
+                        year_errors += 1
+                        continue
+
+                    align_planting_date_to_wth_year(scenario_run, BASE_DIR)
+
+                    validation = validate_dssat_inputs(scenario_run, BASE_DIR)
+                    if validation["errors"]:
+                        year_errors += 1
+                        continue
+
+                    x_path = write_x_file(
+                        scenario_run,
+                        output_dir=str(BASE_DIR / "dssat" / "exp")
                     )
+                    if not x_path.exists():
+                        year_errors += 1
+                        continue
 
-                # ===============================
-                # 4️⃣ Génération des fichiers DSSAT
-                # ===============================
-
-                # --- X file ---
-                x_path = write_x_file(
-                    scenario,
-                    output_dir=str(BASE_DIR / "dssat" / "exp")
-                )
-
-                if not x_path.exists():
-                    raise FileNotFoundError("Fichier X non généré")
-
-                print(f"  ✅ Fichier X créé : {x_path.name}")
-                print(f"  DEBUG BASE_DIR : {BASE_DIR}")
-                print(f"  DEBUG x_path : {x_path}")
-                print(f"  DEBUG x_path.exists() : {x_path.exists()}")
-                print(f"  DEBUG output_dir : {str(BASE_DIR / 'dssat' / 'exp')}")
-
-                # --- SNX file ---
-                from pathlib import Path
-
-                # ...
-
-                # Génération SNX
-                snx_output_dir = Path("/app/dssat/snx")
-                snx_output_dir.mkdir(parents=True, exist_ok=True)
-
-                try:
+                    snx_output_dir = Path("/app/dssat/snx")
+                    snx_output_dir.mkdir(parents=True, exist_ok=True)
                     snx_path = Path(write_snx_file(
-                    scenario,
-                    x_path.name,
-                    output_dir=str(snx_output_dir)
-                ))
-                    print(f"✅ Fichier SNX créé : {snx_path}")
-                except Exception as e:
-                    print(f"❌ Erreur SNX : {e}")
-                    raise
+                        scenario_run,
+                        x_path.name,
+                        output_dir=str(snx_output_dir)
+                    ))
 
-                # ===============================
-                # 5️⃣ Lancer DSSAT
-                # ===============================
-                result = run_dssat_simulation(
-                    str(snx_path),
-                    dssat_workdir=str(BASE_DIR / "dssat")
-                )
-
-                # ===============================
-                # 6️⃣ Analyse du résultat
-                # ===============================
-                if result["returncode"] == 0:
-                    parsed = parse_summary_metrics(BASE_DIR / "dssat" / "Summary.OUT")
-                    # Run-level success from DSSAT should not be marked as ERREUR
-                    # just because Summary parsing is incomplete.
-                    metrics = dict(parsed or {})
-                    status = classify_dssat_status(parsed) if parsed else "SUCCES"
-                    metrics["status"] = status
-                    sim_results[scenario.get("id_scenario")] = metrics
-                    if status == "VIDE":
-                        messages.append(
-                            f"⚠️ Scénario {i} simulé ({snx_path.name}) mais résultats vides (-99)"
-                        )
-                    else:
-                        messages.append(
-                            f"✅ Scénario {i} simulé avec succès ({snx_path.name}) | {format_metrics_short(metrics)}"
-                        )
-                    print(f"  ✅ DSSAT retour : 0 (succès)")
-                else:
-                    sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
-                    messages.append(
-                        f"❌ Scénario {i} – erreur DSSAT : {result['stderr'][:100]}"
+                    result = run_dssat_simulation(
+                        str(snx_path),
+                        dssat_workdir=str(BASE_DIR / "dssat")
                     )
-                    print(f"  ❌ DSSAT erreur : {result['stderr'][:200]}")
+                    if result["returncode"] != 0:
+                        year_errors += 1
+                        continue
 
-            except FileNotFoundError as e:
-                sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
-                messages.append(
-                    f"❌ Scénario {i} – fichier manquant : {str(e)}"
-                )
-                print(f"  ❌ Fichier manquant : {e}")
+                    parsed = parse_summary_metrics(BASE_DIR / "dssat" / "Summary.OUT")
+                    status = classify_dssat_status(parsed) if parsed else "VIDE"
+                    row = dict(parsed or {})
+                    row["status"] = status
+                    row["year"] = y
+                    history.append(row)
+
+                if history:
+                    agg = _aggregate_history(history)
+                    agg["years_total"] = len(years)
+                    agg["years_err"] = year_errors
+                    sim_results[sid] = agg
+                    messages.append(
+                        f"Scenario {i} - historique {y0}-{y1}: "
+                        f"{agg.get('years_ok',0)}/{len(years)} annees simulees | "
+                        f"HARWT moyen={agg.get('HARWT','-')} kg/ha"
+                    )
+                else:
+                    sim_results[sid] = {"status": "ERREUR", "years_ok": 0, "years_total": len(years), "years_err": year_errors}
+                    messages.append(
+                        f"Scenario {i} - aucune annee simulee sur {y0}-{y1}"
+                    )
 
             except Exception as e:
-                sim_results[scenario.get("id_scenario")] = {"status": "ERREUR"}
-                messages.append(
-                    f"❌ Scénario {i} – erreur : {str(e)[:100]}"
-                )
-                print(f"  ❌ Erreur : {e}")
+                sim_results[sid] = {"status": "ERREUR"}
+                messages.append(f"Scenario {i} - erreur: {str(e)[:120]}")
 
-        # ===============================
-        # 6️⃣ Affichage UI
-        # ===============================
         return build_simulation_output(scenarios, sim_results, messages), sim_results
