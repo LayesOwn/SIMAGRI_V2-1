@@ -1088,6 +1088,46 @@ def register_callbacks(app):
             safe = _parse_planting_date(current_planting_date)
             return "Erreur calcul", None, None, safe.isoformat() if safe else None
 
+    @app.callback(
+        [
+            Output("hist_start_year", "min"),
+            Output("hist_start_year", "max"),
+            Output("hist_start_year", "value"),
+            Output("hist_end_year", "min"),
+            Output("hist_end_year", "max"),
+            Output("hist_end_year", "value"),
+        ],
+        [
+            Input("department", "value"),
+            Input("hist_start_year", "value"),
+            Input("hist_end_year", "value"),
+        ],
+    )
+    def clamp_hist_years_to_enacts(dept_name, y0, y1):
+        """
+        Limite la plage historique a la couverture ENACTS du departement.
+        """
+        try:
+            df = load_enacts(dept_name).sort_values("date")
+            if df.empty:
+                year_now = datetime.now().year
+                return 1991, year_now, y0, 1991, year_now, y1
+
+            ymin = int(df["date"].dt.year.min())
+            ymax = int(df["date"].dt.year.max())
+            y0 = int(y0) if y0 is not None else ymin
+            y1 = int(y1) if y1 is not None else ymax
+
+            y0 = max(ymin, min(y0, ymax))
+            y1 = max(ymin, min(y1, ymax))
+            if y0 > y1:
+                y1 = y0
+
+            return ymin, ymax, y0, ymin, ymax, y1
+        except Exception:
+            year_now = datetime.now().year
+            return 1991, year_now, y0, 1991, year_now, y1
+
 
     @app.callback(
         Output("scenario-store", "data"),
@@ -1108,6 +1148,7 @@ def register_callbacks(app):
         State("fert_total_cost", "value"),
         State("irrig_cost", "value"),
         State("total_cost", "value"),
+        State("toggle_socio", "n_clicks"),
         State("simulation_mode", "value"),
         prevent_initial_call=True,
     )
@@ -1129,6 +1170,7 @@ def register_callbacks(app):
         fert_cost,
         irrig_cost,
         total_cost,
+        toggle_socio_clicks,
         simulation_mode,
     ):
         """
@@ -1153,6 +1195,23 @@ def register_callbacks(app):
         if not safe_planting_date:
             print(f"⚠️ Scenario ignore: donnees ENACTS invalides pour {department}")
             return stored_scenarios
+        # Clamp des annees historiques a la couverture ENACTS du departement.
+        try:
+            _df = load_enacts(department).sort_values("date")
+            y_min = int(_df["date"].dt.year.min())
+            y_max = int(_df["date"].dt.year.max())
+            hist_start_year = int(hist_start_year) if hist_start_year is not None else y_min
+            hist_end_year = int(hist_end_year) if hist_end_year is not None else y_max
+            hist_start_year = max(y_min, min(hist_start_year, y_max))
+            hist_end_year = max(y_min, min(hist_end_year, y_max))
+            if hist_start_year > hist_end_year:
+                hist_end_year = hist_start_year
+        except Exception:
+            pass
+
+        # Cout de production: 0 par defaut.
+        # Si la section socio-economique est ouverte, on prend le total calcule.
+        fixed_cost = (total_cost or 0) if (toggle_socio_clicks or 0) > 0 else 0
 
         scenario = build_scenario_from_ui(
             scenario_id=f"S{len(stored_scenarios) + 1:03d}",
@@ -1174,7 +1233,7 @@ def register_callbacks(app):
                 "SeedCost": 0,
                 "IrrigCost": irrig_cost or 0,
                 "OtherVariableCosts": 0,
-                "FixedCosts": total_cost or 0,
+                "FixedCosts": fixed_cost,
             },
         )
 
