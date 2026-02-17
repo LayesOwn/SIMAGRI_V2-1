@@ -16,12 +16,14 @@ import os
 # Layouts
 from ui.layout_home import layout_home
 from ui.layout_main import layout_main
+from ui.layout_forecast import layout_forecast
 
 external_stylesheets = [
     dbc.themes.BOOTSTRAP,
     "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 ]
 from ui.callbacks import register_callbacks
+from ui.callbacks_forecast import register_forecast_callbacks
 
 app = dash.Dash(
     __name__,
@@ -29,7 +31,8 @@ app = dash.Dash(
     suppress_callback_exceptions=True
 )
 
-register_callbacks(app)   # 🔥 OBLIGATOIRE
+register_callbacks(app)
+register_forecast_callbacks(app)   # 🔥 OBLIGATOIRE
 
 server = app.server
 
@@ -54,10 +57,7 @@ def display_page(pathname):
         return layout_main()
 
     elif pathname == "/prevision":
-        return html.H3(
-            "Analyse prévisionnelle (en cours de développement)",
-            className="text-center mt-5"
-        )
+        return layout_forecast()
 
     elif pathname == "/docs":
         return html.H3(

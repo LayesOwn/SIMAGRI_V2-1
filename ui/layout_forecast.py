@@ -85,7 +85,6 @@ def layout_forecast():
                                                 ],
                                                 className="g-2",
                                             ),
-
                                             html.Hr(),
 
                                             dbc.Row(
@@ -112,9 +111,10 @@ def layout_forecast():
                                                             dbc.Input(
                                                                 id="forecast-target-year",
                                                                 type="number",
-                                                                value=current_year + 1,
+                                                                value=current_year,
                                                                 min=current_year,
-                                                                max=current_year + 5,
+                                                                max=current_year,
+                                                                disabled=True,
                                                             ),
                                                         ],
                                                         md=4,
@@ -127,6 +127,10 @@ def layout_forecast():
                                                                 date=date(current_year, 6, 15),
                                                                 display_format="DD/MM/YYYY",
                                                                 clearable=False,
+                                                            ),
+                                                            dbc.FormText(
+                                                                id="forecast-recommended-sowing",
+                                                                children="Date conseillee: en attente du forecast",
                                                             ),
                                                         ],
                                                         md=4,
@@ -222,7 +226,22 @@ def layout_forecast():
                                                         size="sm",
                                                         className="mb-2",
                                                     ),
+                                                    dbc.Row(
+                                                        [
+                                                            dbc.Col(html.Strong("Nom"), md=3),
+                                                            dbc.Col(html.Strong("Jour (JAS)"), md=3),
+                                                            dbc.Col(html.Strong("Quantite (mm)"), md=2),
+                                                            dbc.Col(html.Strong("Prix (FCFA/mm)"), md=2),
+                                                            dbc.Col(html.Strong("Cout (FCFA)"), md=2),
+                                                        ],
+                                                        className="mb-1",
+                                                    ),
                                                     html.Div(id="forecast-irrigation-lines"),
+                                                    dbc.Alert(
+                                                        id="forecast-irrig-summary",
+                                                        color="info",
+                                                        children="Aucune irrigation definie",
+                                                    ),
                                                     dbc.Row(
                                                         [
                                                             dbc.Col(
@@ -286,6 +305,39 @@ def layout_forecast():
                                                         [
                                                             dbc.Col(
                                                                 [
+                                                                    dbc.Label("Preparation du sol"),
+                                                                    dcc.Dropdown(
+                                                                        id="forecast-prep-sol",
+                                                                        options=[
+                                                                            {"label": "Labour", "value": "Labour"},
+                                                                            {"label": "Offsetage", "value": "Offsetage"},
+                                                                            {"label": "Billonnage", "value": "Billonnage"},
+                                                                        ],
+                                                                        value=["Labour"],
+                                                                        multi=True,
+                                                                    ),
+                                                                ],
+                                                                md=6,
+                                                            ),
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Label("Cout preparation du sol (FCFA/ha)"),
+                                                                    dbc.Input(
+                                                                        id="forecast-prep-sol-cost",
+                                                                        type="number",
+                                                                        disabled=True,
+                                                                    ),
+                                                                ],
+                                                                md=6,
+                                                            ),
+                                                        ],
+                                                        className="g-2",
+                                                    ),
+                                                    html.Hr(),
+                                                    dbc.Row(
+                                                        [
+                                                            dbc.Col(
+                                                                [
                                                                     dbc.Label("Type de semence"),
                                                                     dcc.Dropdown(
                                                                         id="forecast-seed-type",
@@ -293,21 +345,32 @@ def layout_forecast():
                                                                         value="Semence locale",
                                                                     ),
                                                                 ],
-                                                                md=4,
+                                                                md=3,
                                                             ),
                                                             dbc.Col(
                                                                 [
                                                                     dbc.Label("Quantite (kg/ha)"),
                                                                     dbc.Input(id="forecast-seed-qty", type="number"),
                                                                 ],
-                                                                md=4,
+                                                                md=3,
                                                             ),
                                                             dbc.Col(
                                                                 [
                                                                     dbc.Label("Prix unitaire (FCFA/kg)"),
                                                                     dbc.Input(id="forecast-seed-price", type="number"),
                                                                 ],
-                                                                md=4,
+                                                                md=3,
+                                                            ),
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Label("Cout semences (FCFA)"),
+                                                                    dbc.Input(
+                                                                        id="forecast-seed-cost",
+                                                                        type="number",
+                                                                        disabled=True,
+                                                                    ),
+                                                                ],
+                                                                md=3,
                                                             ),
                                                         ],
                                                         className="g-2",
@@ -326,6 +389,57 @@ def layout_forecast():
                                                                 ],
                                                                 md=6,
                                                             ),
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Label("Cout post-recolte (FCFA)"),
+                                                                    dbc.Input(
+                                                                        id="forecast-post-harvest-cost",
+                                                                        type="number",
+                                                                        disabled=True,
+                                                                    ),
+                                                                ],
+                                                                md=6,
+                                                            ),
+                                                        ],
+                                                        className="g-2",
+                                                    ),
+                                                    html.Hr(),
+                                                    dbc.Row(
+                                                        [
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Label("Main-d'oeuvre"),
+                                                                    dcc.Dropdown(
+                                                                        id="forecast-labor-type",
+                                                                        options=[
+                                                                            {"label": "Semis", "value": "Semis"},
+                                                                            {"label": "Sarclage", "value": "Sarclage"},
+                                                                            {"label": "Recolte", "value": "Recolte"},
+                                                                            {"label": "Autres", "value": "Autres"},
+                                                                        ],
+                                                                        value=["Semis"],
+                                                                        multi=True,
+                                                                    ),
+                                                                ],
+                                                                md=6,
+                                                            ),
+                                                            dbc.Col(
+                                                                [
+                                                                    dbc.Label("Cout main-d'oeuvre (FCFA/ha)"),
+                                                                    dbc.Input(
+                                                                        id="forecast-labor-cost",
+                                                                        type="number",
+                                                                        disabled=True,
+                                                                    ),
+                                                                ],
+                                                                md=6,
+                                                            ),
+                                                        ],
+                                                        className="g-2",
+                                                    ),
+                                                    html.Hr(),
+                                                    dbc.Row(
+                                                        [
                                                             dbc.Col(
                                                                 [
                                                                     dbc.Label("Cout total production (FCFA/ha)"),

@@ -123,9 +123,9 @@ def layout_main():
                                             dbc.Input(
                                                 id="hist_start_year",
                                                 type="number",
-                                                value=current_year - 30,  # 🔑 20 ans par défaut
+                                                value=min(current_year - 30, 2022),  # borné à 2022
                                                 min=1991,
-                                                max=current_year
+                                                max=2022
                                             )
                                         ], md=6),
 
@@ -134,9 +134,9 @@ def layout_main():
                                             dbc.Input(
                                                 id="hist_end_year",
                                                 type="number",
-                                                value=current_year-1,  # 🔑 année actuelle
+                                                value=min(current_year - 1, 2022),  # borné à 2022
                                                 min=1991,
-                                                max=current_year
+                                                max=2022
                                             )
                                         ], md=6),
 

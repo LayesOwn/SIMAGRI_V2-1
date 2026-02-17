@@ -1114,7 +1114,7 @@ def register_callbacks(app):
                 return 1991, year_now, y0, 1991, year_now, y1
 
             ymin = int(df["date"].dt.year.min())
-            ymax = int(df["date"].dt.year.max())
+            ymax = min(int(df["date"].dt.year.max()), 2022)
             y0 = int(y0) if y0 is not None else ymin
             y1 = int(y1) if y1 is not None else ymax
 
@@ -1125,8 +1125,7 @@ def register_callbacks(app):
 
             return ymin, ymax, y0, ymin, ymax, y1
         except Exception:
-            year_now = datetime.now().year
-            return 1991, year_now, y0, 1991, year_now, y1
+            return 1991, 2022, y0, 1991, 2022, y1
 
 
     @app.callback(
@@ -1199,7 +1198,7 @@ def register_callbacks(app):
         try:
             _df = load_enacts(department).sort_values("date")
             y_min = int(_df["date"].dt.year.min())
-            y_max = int(_df["date"].dt.year.max())
+            y_max = min(int(_df["date"].dt.year.max()), 2022)
             hist_start_year = int(hist_start_year) if hist_start_year is not None else y_min
             hist_end_year = int(hist_end_year) if hist_end_year is not None else y_max
             hist_start_year = max(y_min, min(hist_start_year, y_max))
@@ -1320,32 +1319,43 @@ def register_callbacks(app):
                 base_date = scenario.get("crop", {}).get("planting_date")
                 history = []
                 year_errors = 0
+                dssat_dir = BASE_DIR / "dssat"
+
+                # Optimisation: generation meteo une seule fois par scenario.
+                scenario_base = copy.deepcopy(scenario)
+                wth_path = ensure_weather_for_scenario(scenario_base, dssat_dir)
+                if wth_path is None:
+                    sim_results[sid] = {"status": "ERREUR"}
+                    messages.append(f"Scenario {i} - meteo DSSAT non disponible")
+                    continue
+                wth_dates, _ = _parse_wth_dates(wth_path)
+                if not wth_dates:
+                    sim_results[sid] = {"status": "ERREUR"}
+                    messages.append(f"Scenario {i} - WTH invalide: {Path(wth_path).name}")
+                    continue
+                wth_min, wth_max = min(wth_dates), max(wth_dates)
+                min_ok, max_ok = _feasible_bounds_from_dates(wth_min, wth_max)
 
                 for y in years:
-                    scenario_run = copy.deepcopy(scenario)
+                    scenario_run = copy.deepcopy(scenario_base)
                     run_date = _planting_date_for_year(base_date, y)
                     if not run_date:
                         year_errors += 1
                         continue
-                    scenario_run.setdefault("crop", {})["planting_date"] = run_date
-                    scenario_run.setdefault("dssat", {})["PltDate"] = run_date
-
-                    # Meteo + station
-                    wth_path = ensure_weather_for_scenario(scenario_run, BASE_DIR / "dssat")
-                    if wth_path is None:
+                    pdt = _parse_planting_date(run_date)
+                    if not pdt:
                         year_errors += 1
                         continue
-
-                    align_planting_date_to_wth_year(scenario_run, BASE_DIR)
-
-                    validation = validate_dssat_inputs(scenario_run, BASE_DIR)
-                    if validation["errors"]:
+                    # Verification rapide de couverture meteo (evite validation complete a chaque annee).
+                    if pdt < min_ok or pdt > max_ok:
                         year_errors += 1
                         continue
+                    scenario_run.setdefault("crop", {})["planting_date"] = pdt.isoformat()
+                    scenario_run.setdefault("dssat", {})["PltDate"] = pdt.isoformat()
 
                     x_path = write_x_file(
                         scenario_run,
-                        output_dir=str(BASE_DIR / "dssat" / "exp")
+                        output_dir=str(dssat_dir / "exp")
                     )
                     if not x_path.exists():
                         year_errors += 1
@@ -1361,7 +1371,7 @@ def register_callbacks(app):
 
                     result = run_dssat_simulation(
                         str(snx_path),
-                        dssat_workdir=str(BASE_DIR / "dssat")
+                        dssat_workdir=str(dssat_dir)
                     )
                     if result["returncode"] != 0:
                         year_errors += 1
