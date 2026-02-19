@@ -33,6 +33,20 @@ def layout_forecast():
             dcc.Store(id="forecast-results-store", data={}),
 
             html.H3("SIMAGRI - Analyse previsionnelle des cultures", className="text-center my-4"),
+            dbc.Row(
+                [
+                    dbc.Col(
+                        dbc.Button(
+                            "Retour vers Accueil",
+                            href="/",
+                            color="secondary",
+                            size="sm",
+                        ),
+                        width="auto",
+                    )
+                ],
+                className="mb-2",
+            ),
 
             dbc.Row(
                 [
@@ -174,6 +188,13 @@ def layout_forecast():
                                                         className="mb-2",
                                                     ),
                                                     html.Div(id="forecast-fertilization-lines"),
+                                                    dbc.Alert(
+                                                        id="forecast-fert-npk-summary",
+                                                        color="info",
+                                                        is_open=True,
+                                                        children="Aucun apport calcule",
+                                                        className="mt-2",
+                                                    ),
                                                     dbc.Row(
                                                         [
                                                             dbc.Col(
@@ -225,6 +246,13 @@ def layout_forecast():
                                                         color="secondary",
                                                         size="sm",
                                                         className="mb-2",
+                                                    ),
+                                                    dbc.Button(
+                                                        "Auto-irrigation",
+                                                        id="forecast-auto-irrigation",
+                                                        color="info",
+                                                        size="sm",
+                                                        className="mb-2 ms-2",
                                                     ),
                                                     dbc.Row(
                                                         [
@@ -549,6 +577,35 @@ def layout_forecast():
                             columns=[],
                             page_size=6,
                             style_table={"overflowX": "auto"},
+                            style_data_conditional=[
+                                {
+                                    "if": {
+                                        "filter_query": "{DSSAT:Status} = 'ERREUR'",
+                                        "column_id": "DSSAT:Status",
+                                    },
+                                    "backgroundColor": "#dc3545",
+                                    "color": "white",
+                                    "fontWeight": "bold",
+                                },
+                                {
+                                    "if": {
+                                        "filter_query": "{DSSAT:Status} = 'VIDE'",
+                                        "column_id": "DSSAT:Status",
+                                    },
+                                    "backgroundColor": "#ffc107",
+                                    "color": "#212529",
+                                    "fontWeight": "bold",
+                                },
+                                {
+                                    "if": {
+                                        "filter_query": "{DSSAT:Status} = 'SUCCES'",
+                                        "column_id": "DSSAT:Status",
+                                    },
+                                    "backgroundColor": "#198754",
+                                    "color": "white",
+                                    "fontWeight": "bold",
+                                },
+                            ],
                             style_cell={
                                 "minWidth": "120px",
                                 "width": "120px",

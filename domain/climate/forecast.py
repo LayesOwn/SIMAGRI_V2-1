@@ -5,7 +5,8 @@ import pandas as pd
 from domain.geography import get_department_code, get_department_gps, get_department_wth_code
 
 
-FORECAST_DIR = Path(__file__).resolve().parents[2] / "data" / "Donnees_Meteo"
+FORECAST_DIR = Path(__file__).resolve().parents[2] / "data" / "Donnees_meteo"
+LEGACY_FORECAST_DIR = Path(__file__).resolve().parents[2] / "data" / "Donnees_Meteo"
 FORECAST_REQUIRED_COLS = ["date", "rain", "tmax", "tmin"]
 
 
@@ -16,9 +17,16 @@ def forecast_file_for_department(department):
     preferred = FORECAST_DIR / f"{code}.csv"
     if preferred.exists():
         return preferred
+    legacy = LEGACY_FORECAST_DIR / f"{code}.csv"
+    if legacy.exists():
+        return legacy
     # Support manual naming such as Kaolack.csv (case-insensitive lookup).
     if FORECAST_DIR.exists():
         for p in FORECAST_DIR.glob("*.csv"):
+            if p.stem.upper() == code.upper():
+                return p
+    if LEGACY_FORECAST_DIR.exists():
+        for p in LEGACY_FORECAST_DIR.glob("*.csv"):
             if p.stem.upper() == code.upper():
                 return p
     return preferred

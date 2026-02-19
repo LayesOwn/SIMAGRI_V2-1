@@ -193,6 +193,21 @@ def get_triggered_id():
         return prop_id.split(".")[0] if prop_id else None
 
 
+def _parse_max_scenarios(simulation_mode):
+    """
+    Accepte:
+    - "single" -> 1
+    - int/str numerique -> borne [1, 3]
+    """
+    if simulation_mode in (None, "", "single"):
+        return 1
+    try:
+        n = int(simulation_mode)
+    except Exception:
+        return 1
+    return max(1, min(n, 3))
+
+
 def parse_summary_metrics(summary_path):
     """
     Parse les indicateurs clés DSSAT depuis Summary.OUT.
@@ -213,11 +228,13 @@ def parse_summary_metrics(summary_path):
             continue
         if s.startswith("@"):
             header_tokens = s.split()
+            if header_tokens and header_tokens[0] == "@":
+                header_tokens = header_tokens[1:]
             continue
         if header_tokens and re.match(r"^\s*\d+\s+", line):
-            data_tokens = s.split()
-            if len(data_tokens) >= 10:
-                break
+            cand = s.split()
+            if len(cand) >= 10:
+                data_tokens = cand
 
     if not header_tokens or not data_tokens:
         return {}
@@ -241,11 +258,13 @@ def parse_summary_metrics(summary_path):
                     continue
                 if ss.startswith("@"):
                     ev_header = ss.split()
+                    if ev_header and ev_header[0] == "@":
+                        ev_header = ev_header[1:]
                     continue
                 if ev_header and re.match(r"^\s*\d+\s+", ln):
-                    ev_data = ss.split()
-                    if len(ev_data) >= 10:
-                        break
+                    cand = ss.split()
+                    if len(cand) >= 10:
+                        ev_data = cand
             if ev_header and ev_data:
                 for i, h in enumerate(ev_header):
                     if i < len(ev_data):
@@ -287,7 +306,11 @@ def format_metrics_short(metrics):
 
 def classify_dssat_status(metrics):
     """
-    Retourne un statut simple: SUCCES, VIDE ou ERREUR.
+    Retourne un statut simple:
+    - SUCCES: rendement grain > 0
+    - SUCCES_TECHNIQUE: simulation valide mais HARWT == 0 avec biomasse presente
+    - VIDE: sorties manquantes/inexploitables
+    - ERREUR: execution invalide
     """
     if not metrics:
         return "ERREUR"
@@ -295,7 +318,19 @@ def classify_dssat_status(metrics):
     topwt = str(metrics.get("TOPWT", "")).strip()
     if harwt in {"-99", ""} and topwt in {"-99", ""}:
         return "VIDE"
-    return "SUCCES"
+    try:
+        h = float(harwt)
+    except Exception:
+        h = None
+    try:
+        t = float(topwt)
+    except Exception:
+        t = None
+    if h is not None and h > 0:
+        return "SUCCES"
+    if (h is not None and h == 0) and (t is not None and t >= 0):
+        return "SUCCES_TECHNIQUE"
+    return "VIDE"
 
 
 def _planting_date_for_year(base_date, year):
@@ -329,8 +364,10 @@ def _aggregate_history(history):
         agg[k] = f"{sum(vals)/len(vals):.1f}" if vals else "-"
 
     # status by historical outcomes
-    if any(_num(r.get("HARWT")) not in (None, 0.0) for r in history):
+    if any((_num(r.get("HARWT")) or 0.0) > 0 for r in history):
         agg["status"] = "SUCCES"
+    elif any((_num(r.get("HARWT")) == 0.0) and (_num(r.get("TOPWT")) is not None) for r in history):
+        agg["status"] = "SUCCES_TECHNIQUE"
     elif any(_num(r.get("TOPWT")) is not None for r in history):
         agg["status"] = "VIDE"
     else:
@@ -377,6 +414,8 @@ def _num(v):
 
 
 def _advice_for_row(status, harwt, rain, tirr, cet):
+    if status == "SUCCES_TECHNIQUE":
+        return "Simulation valide mais rendement grain nul: ajuster semis, cultivar et fertilisation."
     if status != "SUCCES":
         return "Verifier format/qualite des donnees (meteo, sol, cultivar, semis)."
     if harwt is None or harwt <= 0:
@@ -410,7 +449,7 @@ def build_simulation_output(scenarios, sim_results, messages):
         sid = s.get("id_scenario")
         m = (sim_results or {}).get(sid, {})
         status = m.get("status", "ERREUR")
-        color = "success" if status == "SUCCES" else ("warning" if status == "VIDE" else "danger")
+        color = "success" if status == "SUCCES" else ("warning" if status in {"VIDE", "SUCCES_TECHNIQUE"} else "danger")
 
         harwt = _num(m.get("HARWT"))
         topwt = _num(m.get("TOPWT"))
@@ -464,8 +503,9 @@ def build_simulation_output(scenarios, sim_results, messages):
             histories.append((sid or f"S{idx:03d}", h))
 
     n_success = sum(1 for v in (sim_results or {}).values() if v.get("status") == "SUCCES")
+    n_tech = sum(1 for v in (sim_results or {}).values() if v.get("status") == "SUCCES_TECHNIQUE")
     n_empty = sum(1 for v in (sim_results or {}).values() if v.get("status") == "VIDE")
-    n_error = max(0, len(scenarios) - n_success - n_empty)
+    n_error = max(0, len(scenarios) - n_success - n_tech - n_empty)
 
     fig_agro = go.Figure()
     fig_agro.add_bar(name="HARWT", x=labels, y=harwt_vals)
@@ -539,7 +579,7 @@ def build_simulation_output(scenarios, sim_results, messages):
             color="secondary",
             className="mt-2",
         ),
-        html.P(f"Total: {len(scenarios)} | Succes: {n_success} | Vides: {n_empty} | Erreurs: {n_error}"),
+        html.P(f"Total: {len(scenarios)} | Succes: {n_success} | Succes technique: {n_tech} | Vides: {n_empty} | Erreurs: {n_error}"),
         dbc.Row([
             dbc.Col(dcc.Graph(figure=fig_agro), md=6),
             dbc.Col(dcc.Graph(figure=fig_water), md=6),
@@ -752,13 +792,17 @@ def register_callbacks(app):
         [
             Input("irrigation", "value"),
             Input("add-irrigation", "n_clicks"),
+            Input("auto-irrigation", "n_clicks"),
             Input({"type": "irrig_day", "index": ALL}, "value"),
             Input({"type": "irrig_mm", "index": ALL}, "value"),
             Input({"type": "irrig_price", "index": ALL}, "value"),
         ],
-        State("irrigation-store", "data"),
+        [
+            State("irrigation-store", "data"),
+            State("crop", "value"),
+        ],
     )
-    def manage_irrigation(use_irrig, add_clicks, days, mms, prices, store):
+    def manage_irrigation(use_irrig, add_clicks, auto_clicks, days, mms, prices, store, crop):
         """
         Gère l'ajout et la modification des irrigations
         """
@@ -773,7 +817,15 @@ def register_callbacks(app):
                 "price": 250
             }]
 
-        if get_triggered_id() == "add-irrigation":
+        trig = get_triggered_id()
+        if trig == "auto-irrigation":
+            irr_days, water_mm = get_irrigation_schedule(crop or "ML")
+            if irr_days and water_mm:
+                store = [
+                    {"doy": int(d), "mm": float(water_mm), "price": 250.0}
+                    for d in irr_days
+                ]
+        elif trig == "add-irrigation":
             store.append(store[-1].copy())
 
         total = 0
@@ -1131,7 +1183,6 @@ def register_callbacks(app):
     @app.callback(
         Output("scenario-store", "data"),
         Input("add_scenario", "n_clicks"),
-        Input("reset_scenarios", "n_clicks"),
         State("scenario-store", "data"),
         State("department", "value"),
         State("crop", "value"),
@@ -1153,7 +1204,6 @@ def register_callbacks(app):
     )
     def add_scenario(
         n_clicks,
-        reset_n_clicks,
         stored_scenarios,
         department,
         crop,
@@ -1180,10 +1230,7 @@ def register_callbacks(app):
         # 🔒 Sécurité
         if stored_scenarios is None:
             stored_scenarios = []
-        trig = get_triggered_id()
-        if trig == "reset_scenarios":
-            return []
-        max_scenarios = int(simulation_mode or 1)
+        max_scenarios = _parse_max_scenarios(simulation_mode)
         if len(stored_scenarios) >= max_scenarios:
             return stored_scenarios
 
@@ -1266,20 +1313,15 @@ def register_callbacks(app):
             Output("simulation-results-store", "data"),
         ],
         Input("run_simulation", "n_clicks"),
-        Input("reset_scenarios", "n_clicks"),
         State("scenario-store", "data"),
         State("simulation-results-store", "data"),
         State("simulation_mode", "value"),
         prevent_initial_call=True,
     )
-    def run_dssat_from_ui(n_clicks, reset_n_clicks, scenarios, sim_results, simulation_mode):
+    def run_dssat_from_ui(n_clicks, scenarios, sim_results, simulation_mode):
         """
         Lance la simulation DSSAT historique sur l'intervalle d'annees choisi.
         """
-
-        trig = get_triggered_id()
-        if trig == "reset_scenarios":
-            return "Ajoutez un ou plusieurs scenarios puis cliquez sur Simuler.", {}
 
         if not n_clicks:
             return "Cliquez sur le bouton Simuler", (sim_results or {})
@@ -1289,7 +1331,7 @@ def register_callbacks(app):
 
         messages = []
         sim_results = dict(sim_results or {})
-        max_scenarios = int(simulation_mode or 1)
+        max_scenarios = _parse_max_scenarios(simulation_mode)
         scenarios = scenarios[:max_scenarios]
 
         for i, scenario in enumerate(scenarios, start=1):

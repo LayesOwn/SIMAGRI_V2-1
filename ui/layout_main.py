@@ -45,6 +45,20 @@ def layout_main():
             "SIMAGRI - Analyse Historique des cultures",
             className="text-center my-4"
         ),
+        dbc.Row(
+            [
+                dbc.Col(
+                    dbc.Button(
+                        "Retour vers Accueil",
+                        href="/",
+                        color="secondary",
+                        size="sm",
+                    ),
+                    width="auto",
+                )
+            ],
+            className="mb-2",
+        ),
 
         # ==================================================
         # ZONE PRINCIPALE : 2 COLONNES
@@ -123,9 +137,9 @@ def layout_main():
                                             dbc.Input(
                                                 id="hist_start_year",
                                                 type="number",
-                                                value=min(current_year - 30, 2022),  # borné à 2022
+                                                value=current_year - 30,  # 🔑 20 ans par défaut
                                                 min=1991,
-                                                max=2022
+                                                max=current_year
                                             )
                                         ], md=6),
 
@@ -134,9 +148,9 @@ def layout_main():
                                             dbc.Input(
                                                 id="hist_end_year",
                                                 type="number",
-                                                value=min(current_year - 1, 2022),  # borné à 2022
+                                                value=current_year-1,  # 🔑 année actuelle
                                                 min=1991,
-                                                max=2022
+                                                max=current_year
                                             )
                                         ], md=6),
 
@@ -159,8 +173,7 @@ def layout_main():
                                 dcc.DatePickerSingle(
                                     id="planting_date",
                                     date=date(2026, 6, 15),
-                                    display_format="DD/MM/YYYY",
-                                    clearable=False
+                                    display_format="DD/MM/YYYY"
                                 )
                             ], md=4),
                             dbc.Col([
@@ -185,7 +198,7 @@ def layout_main():
                         # --- Pratiques culturales ---
                             
                         dbc.Row([
-                        dbc.Col([
+                        
                             dbc.Label("Fertilisation"),
                             dbc.RadioItems(
                                 id="fertilization",
@@ -195,8 +208,8 @@ def layout_main():
                                 ],
                                 value=False,  # 🔑 par défaut
                                 inline=True
-                            )
-                               ]),
+                      ),
+                        
                         html.Div(
                                 id="fertilization-block",
                                 style={"display": "none", "width": "100%"},
@@ -266,6 +279,13 @@ def layout_main():
                                             size="sm",
                                             className="mb-2"
                                         ),
+                                        dbc.Button(
+                                            "Auto-irrigation",
+                                            id="auto-irrigation",
+                                            color="info",
+                                            size="sm",
+                                            className="mb-2 ms-2"
+                                        ),
 
                                         dbc.Row([
                                             dbc.Col(html.Strong("Jour (JAS)"), md=3),
@@ -294,7 +314,7 @@ def layout_main():
 
                             ]),
                             html.Hr(),
-                            dbc.Row([
+                            dbc.Row( [
                               dbc.Col([
                                   dbc.Button(
                                 "Section socio-économique",
@@ -444,15 +464,14 @@ def layout_main():
                         # --- Mode de simulation ---
                         dbc.Row([
                             dbc.Col([
-                                dbc.Label("Scénarios simulés"),
+                                dbc.Label("Type de simulation"),
                                 dbc.RadioItems(
                                     id="simulation_mode",
                                     options=[
-                                        {"label": "1 scénario", "value": 1},
-                                        {"label": "2 scénarios", "value": 2},
-                                        {"label": "3 scénarios", "value": 3},
+                                        {"label": "Simuler un seul scénario", "value": "single"},
+                                
                                     ],
-                                    value=1,
+                                    value="single",
                                     inline=True
                                 )
                             ])
@@ -482,7 +501,7 @@ def layout_main():
                             ),
                             dbc.Col(
                                 dbc.Button(
-                                    "Réinitialiser",
+                                    "Reinitialiser",
                                     id="reset_scenarios",
                                     color="danger",
                                     className="w-100"
@@ -508,7 +527,7 @@ def layout_main():
                 dl.Map(
                     id="map",
                     center=[14.15, -16.07],
-                    zoom=6,
+                    zoom=7,
                     style={"width": "100%", "height": "500px"},
                     children=[
                         dl.TileLayer(

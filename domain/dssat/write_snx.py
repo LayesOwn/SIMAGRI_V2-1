@@ -34,6 +34,23 @@ def write_snx_file(scenario, x_filename, output_dir):
         or "IB00000010"
     )
     soil_code = str(soil_code)[:10]
+    irrigation_enabled = bool(scenario.get("irrigation", {}).get("enabled"))
+    fertilization_enabled = bool(scenario.get("fertilization", {}).get("enabled"))
+    irrigation_schedule = scenario.get("irrigation", {}).get("schedule") or []
+    auto_ir_amt = 10
+    if irrigation_enabled and irrigation_schedule:
+        try:
+            auto_ir_amt = int(round(float(irrigation_schedule[0].get("mm", 10) or 10)))
+        except Exception:
+            auto_ir_amt = 10
+    # SNX templates in this project drive irrigation via AUTOMATIC MANAGEMENT.
+    # Use "A" (automatic) when irrigation is enabled to activate @N IRRIGATION.
+    ma_irrig = "A" if irrigation_enabled else "N"
+    ma_ferti = "D" if fertilization_enabled else "N"
+    # Keep MI/MF factor levels at 0 to avoid requiring extra factor sections
+    # (*IRRIGATION/*FERTILIZERS factor tables) not used by our template flow.
+    mi_factor = 0
+    mf_factor = 1 if fertilization_enabled else 0
 
     cultivar_code, cultivar_name = resolve_cultivar(crop, cultivar_input, "/app/dssat")
 
@@ -55,7 +72,9 @@ def write_snx_file(scenario, x_filename, output_dir):
 
         f.write("*TREATMENTS                        -------------FACTOR LEVELS------------\n")
         f.write("@N R O C TNAME.................... CU FL SA IC MP MI MF MR MC MT ME MH SM\n")
-        f.write(" 1 1 0 0 SIMAGRI                    1  1  0  1  1  0  0  0  0  0  0  0  1\n\n")
+        f.write(
+            f" 1 1 0 0 SIMAGRI                    1  1  0  1  1  {mi_factor:>1}  {mf_factor:>1}  0  0  0  0  0  1\n\n"
+        )
 
         f.write("*CULTIVARS\n")
         f.write("@C CR INGENO CNAME\n")
@@ -96,7 +115,7 @@ def write_snx_file(scenario, x_filename, output_dir):
         f.write("@N METHODS     WTHER INCON LIGHT EVAPO INFIL PHOTO HYDRO NSWIT MESOM MESEV MESOL\n")
         f.write(" 1 ME              M     M     E     R     S     C     R     1     G     S     2\n")
         f.write("@N MANAGEMENT  PLANT IRRIG FERTI RESID HARVS\n")
-        f.write(" 1 MA              R     N     D     N     M\n")
+        f.write(f" 1 MA              R     {ma_irrig}     {ma_ferti}     N     M\n")
         f.write("@N OUTPUTS     FNAME OVVEW SUMRY FROPT GROUT CAOUT WAOUT NIOUT MIOUT DIOUT VBOSE CHOUT OPOUT FMOPT\n")
         f.write(" 1 OU              N     Y     Y     1     N     N     N     N     N     N     N     N     Y     A\n\n")
 
@@ -104,7 +123,7 @@ def write_snx_file(scenario, x_filename, output_dir):
         f.write("@N PLANTING    PFRST PLAST PH2OL PH2OU PH2OD PSTMX PSTMN\n")
         f.write(f" 1 PL          {pdate:>5} {pdate:>5}    40   100    30    40    10\n")
         f.write("@N IRRIGATION  IMDEP ITHRL ITHRU IROFF IMETH IRAMT IREFF\n")
-        f.write(" 1 IR             30    50   100 GS000 IR001    10     1\n")
+        f.write(f" 1 IR             30    50   100 GS000 IR001 {auto_ir_amt:>5}     1\n")
         f.write("@N NITROGEN    NMDEP NMTHR NAMNT NCODE NAOFF\n")
         f.write(" 1 NI              5    50    25 FE005 GS000\n")
         f.write("@N RESIDUES    RIPCN RTIME RIDEP\n")

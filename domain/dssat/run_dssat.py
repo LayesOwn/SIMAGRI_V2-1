@@ -78,6 +78,16 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
 
         # 4bis️⃣ Assurer les alias météo 4-caractères (KAOL.WTH, etc.)
         ensure_weather_aliases(dssat_workdir)
+
+        # 4ter️⃣ Nettoyer les sorties DSSAT précédentes pour éviter
+        # la lecture de lignes anciennes dans Summary/Evaluate.
+        for stale in ("Summary.OUT", "Evaluate.OUT", "WARNING.OUT", "ERROR.OUT"):
+            p = Path(stale)
+            if p.exists():
+                try:
+                    p.unlink()
+                except Exception:
+                    pass
         
         # DEBUG : afficher le contenu du batch file
         with open("DSSBatch.V47", "r") as f:
@@ -89,7 +99,21 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
         cmd = f"{dssat_path} {model} B DSSBatch.V47"
         print(f"🚀 Running: {cmd}")
         
-        returncode = os.system(cmd)
+        proc = subprocess.Popen(
+            cmd,
+            shell=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True,
+        )
+        stdout, stderr = proc.communicate()
+        stdout = stdout or ""
+        stderr = stderr or ""
+        if stdout:
+            print(stdout)
+        if stderr:
+            print(stderr)
+        returncode = proc.returncode
 
         # DSSAT may return shell code 0 even if model ends with internal error.
         warning_file = Path("WARNING.OUT")
@@ -122,8 +146,8 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
         
         return {
             "returncode": returncode,
-            "stdout": "",
-            "stderr": ""
+            "stdout": stdout,
+            "stderr": stderr
         }
         
     except Exception as e:

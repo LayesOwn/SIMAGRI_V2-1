@@ -60,9 +60,28 @@ def display_page(pathname):
         return layout_forecast()
 
     elif pathname == "/docs":
-        return html.H3(
-            "Documentation SIMAGRI",
-            className="text-center mt-5"
+        return dbc.Container(
+            [
+                dbc.Row(
+                    [
+                        dbc.Col(
+                            dbc.Button(
+                                "Retour vers Accueil",
+                                href="/",
+                                color="secondary",
+                                size="sm",
+                            ),
+                            width="auto",
+                        )
+                    ],
+                    className="mt-3 mb-3",
+                ),
+                html.H3(
+                    "Documentation SIMAGRI",
+                    className="text-center mt-2"
+                ),
+            ],
+            fluid=True,
         )
 
     # Page d'accueil par défaut
