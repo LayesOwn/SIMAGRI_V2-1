@@ -757,7 +757,7 @@ def register_callbacks(app):
     # ======================================================
     @app.callback(
         Output("fertilization-block", "style"),
-        Input("fertilization", "value")
+        Input("fertilization", "checked")
     )
     def toggle_fert(use):
         """Affiche/cache le bloc fertilisation"""
@@ -789,7 +789,7 @@ def register_callbacks(app):
             Output("department", "value"),
             Output("crop", "value"),
             Output("cycle", "value"),
-            Output("fertilization", "value"),
+            Output("fertilization", "checked"),
             Output("irrigation", "value"),
             Output("simulation_mode", "value"),
             Output("area_ha", "value"),
@@ -1030,7 +1030,7 @@ def register_callbacks(app):
             Output("fert_total_cost", "value")
         ],
         [
-            Input("fertilization", "value"),
+            Input("fertilization", "checked"),
             Input("add-fertilization", "n_clicks"),
             Input({"type": "fert_type", "index": ALL}, "value"),
             Input({"type": "fert_qty", "index": ALL}, "value")
@@ -1233,7 +1233,7 @@ def register_callbacks(app):
         State("hist_start_year", "value"),
         State("hist_end_year", "value"),
         State("recommended_sowing_date", "value"),
-        State("fertilization", "value"),
+        State("fertilization", "checked"),
         State("fertilization-store", "data"),
         State("irrigation", "value"),
         State("irrigation-store", "data"),

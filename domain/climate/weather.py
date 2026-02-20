@@ -31,11 +31,12 @@ def write_weather_for_department(department, output_dir, station_code=None):
             rain = float(r["prcp"])
             if not (math.isfinite(tmax) and math.isfinite(tmin) and math.isfinite(rain)):
                 continue
-            # DSSAT v4.7 parser expects DATE mainly in YYDDD (5 chars).
+            # DSSAT weather parser is sensitive to fixed columns.
+            # Keep DATE in YYDDD and write contiguous fixed-width numeric fields.
             token = r["date"].strftime("%y%j")
             srad = 18.0  # SRAD placeholder si non disponible dans ENACTS
             f.write(
-                f"{token:>5} {srad:6.1f} {tmax:6.1f} {tmin:6.1f} {rain:6.1f}\n"
+                f"{token:>5}{srad:6.1f}{tmax:6.1f}{tmin:6.1f}{rain:6.1f}\n"
             )
             written += 1
 

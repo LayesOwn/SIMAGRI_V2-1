@@ -163,21 +163,40 @@ def run_dssat_simulation(snx_file, dssat_workdir=None):
 def ensure_weather_aliases(dssat_workdir):
     """
     DSSAT peut demander des fichiers météo en code station 4 caractères.
-    On crée des alias *.WTH (ex: KAOL.WTH -> KAOLA.WTH) si absents.
+    On crée/synchronise les alias *.WTH (ex: KAOL.WTH <-> KAOLA.WTH)
+    pour éviter qu'un vieux fichier long-code soit utilisé à la place du
+    fichier météo court-code fraîchement généré.
     """
     workdir = Path(dssat_workdir)
+    by_prefix = {}
     for wth in workdir.glob("*.WTH"):
-        stem = wth.stem
+        stem = wth.stem.upper()
         if len(stem) < 4:
             continue
-        alias = workdir / f"{stem[:4]}.WTH"
+        key = stem[:4]
+        by_prefix.setdefault(key, []).append(wth)
+
+    for key, files in by_prefix.items():
         try:
-            if alias.exists() or alias.resolve() == wth.resolve():
-                continue
-            shutil.copy2(wth, alias)
-            print(f"✅ Weather alias created: {alias.name} -> {wth.name}")
+            # Garantir au moins le fichier court-code (KAOL.WTH).
+            short_path = workdir / f"{key}.WTH"
+            # Le moteur DSSAT lit la station sur 4 caractères (WSTA). On force
+            # donc le fichier court-code comme source canonique lorsqu'il existe
+            # pour éviter qu'un long-code stale (ex: KAOLA.WTH) écrase KAOL.WTH.
+            if short_path.exists():
+                canonical = short_path
+            else:
+                # Fallback: source la plus récente.
+                canonical = max(files, key=lambda p: p.stat().st_mtime)
+
+            targets = {short_path, *files}
+            for target in targets:
+                if target.resolve() == canonical.resolve():
+                    continue
+                shutil.copy2(canonical, target)
+                print(f"✅ Weather alias synced: {target.name} <- {canonical.name}")
         except Exception as e:
-            print(f"⚠️  Weather alias skipped ({alias.name}): {e}")
+            print(f"⚠️  Weather alias skipped ({key}.WTH): {e}")
 
 
 def extract_crop_from_snx(snx_file):

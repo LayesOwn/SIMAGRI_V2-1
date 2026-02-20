@@ -198,60 +198,57 @@ def layout_historic():
                         # --- Pratiques culturales ---
                             
                         dbc.Row([
-                        
-                            dbc.Label("Fertilisation"),
-                            dbc.RadioItems(
-                                id="fertilization",
-                                options=[
-                                    {"label": "Non", "value": False},
-                                    {"label": "Oui", "value": True},
-                                ],
-                                value=False,  # 🔑 par défaut
-                                inline=True
-                      ),
-                        
-                        html.Div(
-                                id="fertilization-block",
-                                style={"display": "none", "width": "100%"},
-                                children=[
+                            dbc.Col([
+                                dbc.Label("Fertilisation"),
+                                dbc.Checkbox(
+                                    id="fertilization",
+                                    checked=False,
+                                    className="mb-2"
+                                ),
+                                dbc.FormText("Activer la fertilisation", className="mb-2"),
 
-                                    dbc.Button(
-                                        "➕ Ajouter une fertilisation",
-                                        id="add-fertilization",
-                                        color="secondary",
-                                        size="sm",
-                                        className="mb-2"
-                                    ),
+                                html.Div(
+                                    id="fertilization-block",
+                                    style={"display": "none", "width": "100%"},
+                                    children=[
 
-                                    # 🔹 En-tête
-                                    dbc.Row([
-                                        dbc.Col(html.Strong("Type"), md=4),
-                                        dbc.Col(html.Strong("Quantité (Kg/ha)"), md=3),
-                                        dbc.Col(html.Strong("Prix (FCFA)"), md=3,style={"textAlign": "right"}),
-                                    ], className="mb-1"),
-                               
-                                    # 🔹 Lignes dynamiques
-                                    html.Div(id="fertilization-lines"),
-                                
-                                # --- Résumé fertilisation ---
-                                    dbc.Alert(
-                                        id="fert_npk_summary",
-                                        color="info",
-                                        is_open=True,
-                                        children="Aucun apport calculé",
-                                    ),
-                                #    html.Hr(),
+                                        dbc.Button(
+                                            "➕ Ajouter une fertilisation",
+                                            id="add-fertilization",
+                                            color="secondary",
+                                            size="sm",
+                                            className="mb-2"
+                                        ),
 
-                                    dbc.Row([
-                                        dbc.Col([
-                                            dbc.Label("Coût total fertilisation (FCFA/ha)"),
-                                            dbc.Input(id="fert_total_cost", type="number", disabled=True)
-                                        ], md=4)
-                                    ])
-                                ]
-                            ),
-                        
-                             ]),
+                                        # 🔹 En-tête
+                                        dbc.Row([
+                                            dbc.Col(html.Strong("Type"), md=4),
+                                            dbc.Col(html.Strong("Quantité (Kg/ha)"), md=3),
+                                            dbc.Col(html.Strong("Prix (FCFA)"), md=3,style={"textAlign": "right"}),
+                                        ], className="mb-1"),
+
+                                        # 🔹 Lignes dynamiques
+                                        html.Div(id="fertilization-lines"),
+
+                                        # --- Résumé fertilisation ---
+                                        dbc.Alert(
+                                            id="fert_npk_summary",
+                                            color="info",
+                                            is_open=True,
+                                            children="Aucun apport calculé",
+                                        ),
+                                        #    html.Hr(),
+
+                                        dbc.Row([
+                                            dbc.Col([
+                                                dbc.Label("Coût total fertilisation (FCFA/ha)"),
+                                                dbc.Input(id="fert_total_cost", type="number", disabled=True)
+                                            ], md=4)
+                                        ])
+                                    ]
+                                ),
+                            ], md=12),
+                        ]),
                             html.Hr(),
 
                             dbc.Row([
