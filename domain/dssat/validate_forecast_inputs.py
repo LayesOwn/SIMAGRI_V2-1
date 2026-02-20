@@ -3,6 +3,7 @@ from pathlib import Path
 
 from domain.climate.forecast import (
     load_forecast_dataframe,
+    validate_reference_pool,
     validate_forecast_window,
 )
 from domain.dssat.validate_inputs import (
@@ -51,12 +52,17 @@ def validate_forecast_inputs(scenario, base_dir, cycle_days=FORECAST_CYCLE_DAYS)
             f"Date de semis prevision ({pdate}) anterieure a l'annee en cours ({datetime.now().year})"
         )
 
-    # 1) Forecast CSV coverage
+    method = str((scenario.get("forecast", {}) or {}).get("downscaling_method", "FRESAMPLER1") or "FRESAMPLER1").upper()
+
+    # 1) Forecast source coverage
     try:
         df = load_forecast_dataframe(department)
-        start = pdate - timedelta(days=1)
-        end = pdate + timedelta(days=cycle_days)
-        v = validate_forecast_window(df, start, end)
+        if method == "FRESAMPLER1":
+            v = validate_reference_pool(df, pdate, cycle_days)
+        else:
+            start = pdate - timedelta(days=1)
+            end = pdate + timedelta(days=cycle_days)
+            v = validate_forecast_window(df, start, end)
         errors.extend(v.get("errors", []))
         warnings.extend(v.get("warnings", []))
         info.extend(v.get("info", []))
@@ -111,4 +117,3 @@ def validate_forecast_inputs(scenario, base_dir, cycle_days=FORECAST_CYCLE_DAYS)
             )
 
     return {"errors": errors, "warnings": warnings, "info": info}
-

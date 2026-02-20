@@ -152,6 +152,39 @@ def layout_forecast():
                                                 ],
                                                 className="g-2",
                                             ),
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        [
+                                                            dbc.Label("Methode downscaling"),
+                                                            dcc.Dropdown(
+                                                                id="forecast-downscaling-method",
+                                                                options=[
+                                                                    {"label": "Prevision probabiliste (re-echantillonnage BN/NN/AN)", "value": "FRESAMPLER1"},
+                                                                ],
+                                                                value="FRESAMPLER1",
+                                                                clearable=False,
+                                                            ),
+                                                        ],
+                                                        md=8,
+                                                    ),
+                                                    dbc.Col(
+                                                        [
+                                                            dbc.Label("Nombre de realisations"),
+                                                            dbc.Input(
+                                                                id="forecast-realizations",
+                                                                type="number",
+                                                                value=20,
+                                                                min=1,
+                                                                max=200,
+                                                                step=1,
+                                                            ),
+                                                        ],
+                                                        md=4,
+                                                    ),
+                                                ],
+                                                className="g-2 mt-1",
+                                            ),
 
                                             html.Hr(),
 
@@ -497,6 +530,28 @@ def layout_forecast():
                                             ),
 
                                             html.Hr(),
+
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        [
+                                                            dbc.Label("Type de scenario"),
+                                                            dbc.RadioItems(
+                                                                id="forecast-simulation-mode",
+                                                                options=[
+                                                                    {"label": "1 Scenario", "value": 1},
+                                                                    {"label": "2 Scenarios", "value": 2},
+                                                                    {"label": "3 Scenarios", "value": 3},
+                                                                ],
+                                                                value=1,
+                                                                inline=True,
+                                                            ),
+                                                        ],
+                                                        md=12,
+                                                    ),
+                                                ],
+                                                className="g-2",
+                                            ),
 
                                             dbc.Row(
                                                 [

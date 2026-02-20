@@ -196,8 +196,8 @@ def get_triggered_id():
 def _parse_max_scenarios(simulation_mode):
     """
     Accepte:
-    - "single" -> 1
     - int/str numerique -> borne [1, 3]
+    - "single" (legacy) -> 1
     """
     if simulation_mode in (None, "", "single"):
         return 1
@@ -809,7 +809,7 @@ def register_callbacks(app):
             "court",       # cycle
             False,         # fertilization
             "NONE",        # irrigation
-            "single",      # simulation_mode
+            1,             # simulation_mode
             1,             # area_ha
             ["Labour"],    # prep_sol
             "Semence locale",  # seed_type

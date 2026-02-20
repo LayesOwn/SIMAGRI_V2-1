@@ -459,17 +459,18 @@ def layout_historic():
 
                         html.Hr(),
 
-                        # --- Mode de simulation ---
+                        # --- Type de scenario ---
                         dbc.Row([
                             dbc.Col([
-                                dbc.Label("Type de simulation"),
+                                dbc.Label("Type de scenario"),
                                 dbc.RadioItems(
                                     id="simulation_mode",
                                     options=[
-                                        {"label": "Simuler un seul scénario", "value": "single"},
-                                
+                                        {"label": "1 Scenario", "value": 1},
+                                        {"label": "2 Scenarios", "value": 2},
+                                        {"label": "3 Scenarios", "value": 3},
                                     ],
-                                    value="single",
+                                    value=1,
                                     inline=True
                                 )
                             ])

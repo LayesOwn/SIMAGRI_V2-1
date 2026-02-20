@@ -6,6 +6,7 @@ except Exception:
     from dash import callback_context as ctx
 from dash.dependencies import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
+import plotly.graph_objects as go
 import json
 import re
 from pathlib import Path
@@ -26,8 +27,11 @@ from domain.socio_eco import (
 from domain.fertilisation import compute_fertilization_cost, compute_npk_from_fertilizer
 from domain.irrigation import get_irrigation_schedule, DEFAULT_IRRIGATION_PRICE
 from domain.climate.forecast import (
+    FRESAMPLER_DEFAULT_BLOCK_DAYS,
     forecast_file_for_department,
+    generate_fresampler_realizations_for_scenario,
     load_forecast_dataframe,
+    write_forecast_wth_from_dataframe,
     write_forecast_wth_for_scenario,
 )
 from domain.dssat.write_xfile import write_x_file
@@ -119,11 +123,72 @@ def _recommended_sowing_window(df, target_year, department):
     )
 
 
+def _recommended_sowing_climatology(df, target_year, department):
+    """
+    Recommandation basee sur les annees de reference (ex: ENACTS 2021-2022):
+    calcule le DOY median des premiers onsets annuels puis projette sur target_year.
+    """
+    threshold = 15.0 if _is_north_department(department) else 20.0
+    onset_doys = []
+
+    for year, ydf in df.groupby(df["date"].dt.year):
+        ydf = ydf.sort_values("date").reset_index(drop=True)
+        n = len(ydf)
+        found = None
+        for i in range(0, n):
+            onset_ok = False
+            for win in (1, 2, 3):
+                if i + win > n:
+                    break
+                rsum = float(ydf.iloc[i : i + win]["rain"].fillna(0).sum())
+                if rsum >= threshold:
+                    onset_ok = True
+                    break
+            if not onset_ok:
+                continue
+            next20 = ydf.iloc[i + 1 : i + 21]
+            if len(next20) < 20:
+                continue
+            if _max_consecutive_dry_days(next20["rain"].tolist()) >= 20:
+                continue
+            found = ydf.loc[i, "date"]
+            break
+        if found is not None:
+            onset_doys.append(int(found.dayofyear))
+
+    if not onset_doys:
+        return None, None, (
+            f"Aucune date detectee sur annees de reference "
+            f"(regle: >= {threshold:.0f} mm sur 1-3 jours et pas de pause seche de 20 jours apres)"
+        )
+
+    doy = int(round(float(pd.Series(onset_doys).median())))
+    start = (pd.Timestamp(int(target_year), 1, 1) + pd.Timedelta(days=doy - 1)).date()
+    end = min(start + pd.Timedelta(days=10), pd.Timestamp(int(target_year), 12, 31).date())
+    return start, end, (
+        f"Fenetre conseillee ({int(target_year)}) basee climatologie recente: {start} au {end} "
+        f"(seuil {threshold:.0f} mm sur 1-3 jours)"
+    )
+
+
 def _to_float(value):
     try:
         return float(str(value).strip())
     except Exception:
         return None
+
+
+def _parse_max_scenarios(simulation_mode):
+    """
+    Accepte int/str numerique et borne a [1, 3].
+    """
+    if simulation_mode in (None, ""):
+        return 1
+    try:
+        n = int(simulation_mode)
+    except Exception:
+        return 1
+    return max(1, min(n, 3))
 
 
 def _snx_has_fertilizer_inputs(snx_path):
@@ -234,7 +299,110 @@ def _prepare_forecast_scenario_for_dssat(scenario):
     Forecast-only normalization before SNX write:
     - keep management event dates as DAP/JAS (DSSAT reported events use DAP)
     """
-    return copy.deepcopy(scenario)
+    s = copy.deepcopy(scenario or {})
+
+    crop = (s.get("crop", {}) or {})
+    loc = (s.get("location", {}) or {})
+    d = (s.get("dssat", {}) or {})
+
+    crop_code = str(crop.get("code") or d.get("Crop") or "ML").upper()
+    cultivar = crop.get("cultivar") or d.get("Cultivar")
+    station = str(loc.get("station_code") or d.get("stn_name") or "DEPT").upper()[:4]
+    soil = loc.get("soil_code") or d.get("soil")
+    planting_date = crop.get("planting_date") or d.get("PltDate")
+    density = crop.get("density") or d.get("plt_density") or 5
+
+    try:
+        y = int(pd.to_datetime(planting_date, errors="coerce").year)
+    except Exception:
+        y = datetime.now().year
+
+    s["dssat"] = {
+        **d,
+        "Crop": crop_code,
+        "Cultivar": cultivar,
+        "stn_name": station,
+        "soil": soil,
+        "PltDate": planting_date,
+        "FirstYear": d.get("FirstYear", y),
+        "LastYear": d.get("LastYear", y),
+        "TargetYr": d.get("TargetYr", y),
+        "plt_density": density,
+    }
+    return s
+
+
+def _parse_summary_metrics(summary_path):
+    metrics = {}
+    sp = Path(summary_path)
+    if not sp.exists():
+        return metrics
+    txt = sp.read_text(encoding="latin-1", errors="ignore").splitlines()
+    head = None
+    vals = None
+    for ln in txt:
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith("@"):
+            head = s.split()
+            if head and head[0] == "@":
+                head = head[1:]
+            continue
+        if head and s[:1].isdigit():
+            cand = s.split()
+            if len(cand) >= 10:
+                vals = cand
+    if not (head and vals):
+        return metrics
+    row = {k: vals[idx] for idx, k in enumerate(head) if idx < len(vals)}
+    metrics["HARWT"] = row.get("HWAM", "-")
+    metrics["TOPWT"] = row.get("CWAM", "-")
+    metrics["RAIN"] = row.get("PRCM", "-")
+    metrics["RAIN_SEAS"] = row.get("PRCP", "-")
+    metrics["TIRR"] = row.get("IRCM", "-")
+    metrics["CET"] = row.get("ETCM", "-")
+    metrics["MAT"] = row.get("MDAPS", "-")
+    metrics["FERTN"] = row.get("NICM", row.get("NI#M", "-"))
+    return metrics
+
+
+def _merge_metrics(run_metrics, summary_metrics):
+    m = {"status": "SUCCES"}
+    m.update(summary_metrics or {})
+    for key in ["HARWT", "TOPWT", "RAIN", "TIRR", "CET", "MAT"]:
+        if key in (run_metrics or {}):
+            m[key] = run_metrics[key]
+
+    rain_disp = _to_float(m.get("RAIN"))
+    rain_seas = _to_float(m.get("RAIN_SEAS"))
+    if (rain_disp is None or rain_disp == 0) and (rain_seas is not None and rain_seas > 0):
+        m["RAIN"] = f"{rain_seas:.1f}"
+    return m
+
+
+def _aggregate_ensemble_metrics(metrics_list):
+    if not metrics_list:
+        return {"status": "ERREUR"}
+
+    agg = {"status": "SUCCES"}
+    keys = ["HARWT", "TOPWT", "RAIN", "TIRR", "CET", "MAT"]
+    for key in keys:
+        vals = []
+        for m in metrics_list:
+            v = _to_float(m.get(key))
+            if v is not None:
+                vals.append(v)
+        if not vals:
+            agg[key] = "-"
+            continue
+        s = pd.Series(vals, dtype=float)
+        agg[key] = f"{float(s.median()):.1f}"
+        if key in ("HARWT", "TOPWT"):
+            agg[f"{key}_P20"] = f"{float(s.quantile(0.2)):.1f}"
+            agg[f"{key}_P80"] = f"{float(s.quantile(0.8)):.1f}"
+    agg["NREAL"] = len(metrics_list)
+    return agg
 
 
 def _forecast_scenario_to_table_row(s):
@@ -263,6 +431,183 @@ def _forecast_scenario_to_table_row(s):
         "Cout production (FCFA)": _amt(production_cost),
         "Cout total (FCFA)": _amt(total_cost),
     }
+
+
+def _filter_forecast_messages(messages):
+    keep = []
+    patterns = (
+        r"^Scenario\s+\d+\s+-\s+controle UI:",
+        r"^Scenario\s+\d+\s+-\s+(FResampler1|Prevision probabiliste):",
+        r"^Scenario\s+\d+\s+-\s+prevision simulee",
+    )
+    for m in (messages or []):
+        txt = str(m or "").strip()
+        if any(re.match(p, txt) for p in patterns):
+            keep.append(txt)
+    return keep
+
+
+def _build_forecast_results_view(scenarios, sim_results, messages):
+    rows = []
+    labels = []
+    harwt_vals = []
+    topwt_vals = []
+    rain_vals = []
+    tirr_vals = []
+    cet_vals = []
+    cost_vals = []
+    revenue_vals = []
+    margin_vals = []
+    p20_vals = []
+    p80_vals = []
+    metric_lines = []
+
+    for idx, s in enumerate(scenarios, start=1):
+        sid = s.get("id_scenario")
+        m = (sim_results or {}).get(sid, {})
+        status = str(m.get("status", "-"))
+        color = "success" if status == "SUCCES" else ("warning" if status == "VIDE" else "danger")
+
+        harwt = _to_float(m.get("HARWT"))
+        topwt = _to_float(m.get("TOPWT"))
+        rain = _to_float(m.get("RAIN"))
+        tirr = _to_float(m.get("TIRR"))
+        cet = _to_float(m.get("CET"))
+        p20 = _to_float(m.get("HARWT_P20"))
+        p80 = _to_float(m.get("HARWT_P80"))
+        nreal = m.get("NREAL", "-")
+
+        eco = s.get("economy", {}) or {}
+        total_cost = float((eco.get("NFertCost", 0) or 0) + (eco.get("IrrigCost", 0) or 0) + (eco.get("FixedCosts", 0) or 0))
+        crop_price = float(eco.get("CropPrice", 0) or 0)
+        revenue = (harwt or 0.0) * crop_price
+        margin = revenue - total_cost
+
+        rows.append(
+            html.Tr(
+                [
+                    html.Td(f"Scenario {idx}"),
+                    html.Td(sid or "-"),
+                    html.Td(dbc.Badge(status, color=color, className="me-1")),
+                    html.Td(m.get("HARWT", "-")),
+                    html.Td(m.get("HARWT_P20", "-")),
+                    html.Td(m.get("HARWT_P80", "-")),
+                    html.Td(m.get("TOPWT", "-")),
+                    html.Td(m.get("RAIN", "-")),
+                    html.Td(m.get("TIRR", "-")),
+                    html.Td(m.get("CET", "-")),
+                    html.Td(m.get("MAT", "-")),
+                    html.Td(nreal),
+                ]
+            )
+        )
+
+        labels.append(sid or f"F{idx:03d}")
+        harwt_vals.append(harwt or 0)
+        topwt_vals.append(topwt or 0)
+        rain_vals.append(rain or 0)
+        tirr_vals.append(tirr or 0)
+        cet_vals.append(cet or 0)
+        cost_vals.append(total_cost)
+        revenue_vals.append(revenue)
+        margin_vals.append(margin)
+        p20_vals.append(p20 if p20 is not None else harwt or 0)
+        p80_vals.append(p80 if p80 is not None else harwt or 0)
+
+        metric_lines.append(
+            f"{sid or f'Scenario {idx}'}: "
+            f"HARWT={m.get('HARWT','-')} kg/ha, "
+            f"P20={m.get('HARWT_P20','-')}, P80={m.get('HARWT_P80','-')}, "
+            f"TOPWT={m.get('TOPWT','-')} kg/ha, "
+            f"RAIN={m.get('RAIN','-')} mm, "
+            f"TIRR={m.get('TIRR','-')} mm, "
+            f"CET={m.get('CET','-')} mm, "
+            f"MAT={m.get('MAT','-')} j."
+        )
+
+    n_success = sum(1 for v in (sim_results or {}).values() if v.get("status") == "SUCCES")
+    n_empty = sum(1 for v in (sim_results or {}).values() if v.get("status") == "VIDE")
+    n_error = max(0, len(scenarios) - n_success - n_empty)
+
+    fig_agro = go.Figure()
+    fig_agro.add_bar(name="HARWT", x=labels, y=harwt_vals)
+    fig_agro.add_bar(name="TOPWT", x=labels, y=topwt_vals)
+    fig_agro.update_layout(barmode="group", title="Performance agronomique (kg/ha)", yaxis_title="kg/ha", margin=dict(l=20, r=20, t=50, b=20))
+
+    fig_water = go.Figure()
+    fig_water.add_bar(name="RAIN", x=labels, y=rain_vals)
+    fig_water.add_bar(name="TIRR", x=labels, y=tirr_vals)
+    fig_water.add_bar(name="CET", x=labels, y=cet_vals)
+    fig_water.update_layout(barmode="group", title="Bilan hydrique (mm)", yaxis_title="mm", margin=dict(l=20, r=20, t=50, b=20))
+
+    fig_econ = go.Figure()
+    fig_econ.add_bar(name="Cout total", x=labels, y=cost_vals)
+    fig_econ.add_bar(name="Revenu brut", x=labels, y=revenue_vals)
+    fig_econ.add_bar(name="Marge", x=labels, y=margin_vals)
+    fig_econ.update_layout(
+        barmode="group",
+        title="Lecture economique (FCFA/ha)",
+        yaxis_title="FCFA/ha",
+        yaxis_tickformat=".0f",
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+
+    fig_unc = go.Figure()
+    fig_unc.add_bar(name="P20", x=labels, y=p20_vals)
+    fig_unc.add_bar(name="P80", x=labels, y=p80_vals)
+    fig_unc.update_layout(
+        barmode="group",
+        title="Incertitude previsionnelle HARWT (P20/P80)",
+        yaxis_title="kg/ha",
+        margin=dict(l=20, r=20, t=50, b=20),
+    )
+
+    filtered_messages = _filter_forecast_messages(messages)
+
+    return html.Div(
+        [
+            html.H5("Resultat des simulations DSSAT (prevision)", className="mb-3"),
+            html.Ul([html.Li(m, className="mb-1") for m in filtered_messages]),
+            dbc.Table(
+                [
+                    html.Thead(
+                        html.Tr(
+                            [
+                                html.Th("Scenario"),
+                                html.Th("ID"),
+                                html.Th("Status"),
+                                html.Th("HARWT"),
+                                html.Th("P20"),
+                                html.Th("P80"),
+                                html.Th("TOPWT"),
+                                html.Th("RAIN"),
+                                html.Th("TIRR"),
+                                html.Th("CET"),
+                                html.Th("MAT"),
+                                html.Th("NREAL"),
+                            ]
+                        )
+                    ),
+                    html.Tbody(rows),
+                ],
+                bordered=True,
+                striped=True,
+                hover=True,
+                size="sm",
+                className="mt-3",
+            ),
+            dbc.Alert(
+                "Definitions: BN=below normal, NN=near normal, AN=above normal. "
+                "P20/P80 = percentiles de rendement sur les realisations forecast.",
+                color="info",
+                className="mt-2",
+            ),
+            dbc.Alert(html.Ul([html.Li(x) for x in metric_lines]), color="secondary", className="mt-2"),
+            html.P(f"Total: {len(scenarios)} | Succes: {n_success} | Vides: {n_empty} | Erreurs: {n_error}"),
+            dbc.Row([dbc.Col(dcc.Graph(figure=fig_agro), md=6), dbc.Col(dcc.Graph(figure=fig_water), md=6)]),
+            dbc.Row([dbc.Col(dcc.Graph(figure=fig_econ), md=6), dbc.Col(dcc.Graph(figure=fig_unc), md=6)]),
+        ]
+    )
 
 
 def register_forecast_callbacks(app):
@@ -301,13 +646,20 @@ def register_forecast_callbacks(app):
         max_d = pd.to_datetime(df["date"].max(), errors="coerce")
         yr_start = pd.Timestamp(target_year, 1, 1)
         yr_end = pd.Timestamp(target_year, 12, 31)
-        allowed_start = max(min_d, yr_start) if not pd.isna(min_d) else yr_start
-        allowed_end = min(max_d, yr_end) if not pd.isna(max_d) else yr_end
-
-        start, end, msg = _recommended_sowing_window(df, target_year, department)
+        # En mode reference historique (ENACTS 2021-2022), on recommande
+        # pour l'annee cible via climatologie et on autorise toute l'annee cible.
+        has_target_year = bool((df["date"].dt.year == int(target_year)).any())
+        if has_target_year:
+            allowed_start = max(min_d, yr_start) if not pd.isna(min_d) else yr_start
+            allowed_end = min(max_d, yr_end) if not pd.isna(max_d) else yr_end
+            start, end, msg = _recommended_sowing_window(df, target_year, department)
+        else:
+            allowed_start = yr_start
+            allowed_end = yr_end
+            start, end, msg = _recommended_sowing_climatology(df, target_year, department)
         if start is not None:
             recommended = start.isoformat()
-            txt = f"{msg}. Regle: cumul pluie >= seuil sur 1-3 jours, puis pas de pause seche de 20 jours."
+            txt = f"Date conseillee: [{start.isoformat()} - {end.isoformat()}]"
         else:
             recommended = None
             txt = msg
@@ -401,6 +753,9 @@ def register_forecast_callbacks(app):
             Output("forecast-department", "value"),
             Output("forecast-crop", "value"),
             Output("forecast-cycle", "value"),
+            Output("forecast-simulation-mode", "value"),
+            Output("forecast-downscaling-method", "value"),
+            Output("forecast-realizations", "value"),
             Output("forecast-fertilization", "value"),
             Output("forecast-irrigation", "value"),
             Output("forecast-area-ha", "value"),
@@ -417,6 +772,9 @@ def register_forecast_callbacks(app):
             "Kaolack",      # department
             "ML",           # crop
             "court",        # cycle
+            1,              # simulation_mode
+            "FRESAMPLER1",  # downscaling method
+            20,             # realizations
             False,          # fertilization
             "NONE",         # irrigation
             1,              # area_ha
@@ -638,8 +996,11 @@ def register_forecast_callbacks(app):
             State("forecast-department", "value"),
             State("forecast-crop", "value"),
             State("forecast-cycle", "value"),
+            State("forecast-simulation-mode", "value"),
             State("forecast-planting-date", "date"),
             State("forecast-target-year", "value"),
+            State("forecast-downscaling-method", "value"),
+            State("forecast-realizations", "value"),
             State("forecast-fertilization", "value"),
             State("forecast-fertilization-store", "data"),
             State("forecast-irrigation", "value"),
@@ -651,13 +1012,17 @@ def register_forecast_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def add_scenario(n_add, n_reset, store, dept, crop, cycle, planting_date, target_year,
-                     fert, fert_plan, irrig, irrig_plan, fert_cost, irrig_cost, total_cost, socio_clicks):
+    def add_scenario(n_add, n_reset, store, dept, crop, cycle, simulation_mode, planting_date, target_year,
+                     downscaling_method, realizations, fert, fert_plan, irrig, irrig_plan, fert_cost, irrig_cost, total_cost, socio_clicks):
         store = store or []
         trig = get_triggered_id()
         if trig == "forecast-reset-scenarios":
             return []
         if trig != "forecast-add-scenario":
+            return store
+
+        max_scenarios = _parse_max_scenarios(simulation_mode)
+        if len(store) >= max_scenarios:
             return store
 
         # Ensure stable unique IDs even after deletes/resets.
@@ -700,6 +1065,13 @@ def register_forecast_callbacks(app):
         scenario.setdefault("irrigation", {})["method"] = irrig_method
         scenario.setdefault("dssat", {})["forecast_mode"] = True
         scenario.setdefault("economy", {})["SocioEnabled"] = socio_enabled
+        scenario.setdefault("forecast", {})["downscaling_method"] = (downscaling_method or "FRESAMPLER1").upper()
+        try:
+            n_real = int(realizations or 20)
+        except Exception:
+            n_real = 20
+        scenario.setdefault("forecast", {})["n_realizations"] = max(1, min(200, n_real))
+        scenario.setdefault("forecast", {})["block_days"] = FRESAMPLER_DEFAULT_BLOCK_DAYS
         store.append(scenario)
         return store
 
@@ -720,6 +1092,8 @@ def register_forecast_callbacks(app):
             row = _forecast_scenario_to_table_row(s)
             row["DSSAT:Status"] = m.get("status", "-")
             row["DSSAT:HARWT"] = m.get("HARWT", "-")
+            row["DSSAT:HARWT_P20"] = m.get("HARWT_P20", "-")
+            row["DSSAT:HARWT_P80"] = m.get("HARWT_P80", "-")
             row["DSSAT:TOPWT"] = m.get("TOPWT", "-")
             row["DSSAT:RAIN"] = m.get("RAIN", "-")
             row["DSSAT:TIRR"] = m.get("TIRR", "-")
@@ -732,7 +1106,7 @@ def register_forecast_callbacks(app):
             "Fertilisation", "Irrigation",
             "Cout fertilisation (FCFA)", "Cout irrigation (FCFA)",
             "Cout production (FCFA)", "Cout total (FCFA)",
-            "DSSAT:Status", "DSSAT:HARWT", "DSSAT:TOPWT",
+            "DSSAT:Status", "DSSAT:HARWT", "DSSAT:HARWT_P20", "DSSAT:HARWT_P80", "DSSAT:TOPWT",
             "DSSAT:RAIN", "DSSAT:TIRR", "DSSAT:CET", "DSSAT:MAT",
         ]
         cols = [{"name": c, "id": c} for c in col_order]
@@ -741,15 +1115,21 @@ def register_forecast_callbacks(app):
     @app.callback(
         [Output("forecast-comparison-output", "children"), Output("forecast-results-store", "data")],
         [Input("forecast-run-simulation", "n_clicks"), Input("forecast-reset-scenarios", "n_clicks")],
-        [State("forecast-scenario-store", "data"), State("forecast-results-store", "data")],
+        [
+            State("forecast-scenario-store", "data"),
+            State("forecast-results-store", "data"),
+            State("forecast-simulation-mode", "value"),
+        ],
         prevent_initial_call=True,
     )
-    def run_forecast(n_run, n_reset, scenarios, results_store):
+    def run_forecast(n_run, n_reset, scenarios, results_store, simulation_mode):
         if (n_reset or 0) > 0 and (n_reset or 0) >= (n_run or 0):
             return "Ajoutez un scenario previsionnel puis cliquez sur Simuler.", {}
         scenarios = scenarios or []
         if not scenarios:
             return "Aucun scenario previsionnel a simuler.", (results_store or {})
+        max_scenarios = _parse_max_scenarios(simulation_mode)
+        scenarios = scenarios[:max_scenarios]
 
         trig = get_triggered_id()
         # Always start forecast runs from a clean results set.
@@ -765,13 +1145,13 @@ def register_forecast_callbacks(app):
                 scenario_run = _prepare_forecast_scenario_for_dssat(scenario_run)
                 scenario_run.setdefault("dssat", {})["forecast_mode"] = True
                 # Force unique DSSAT run name per scenario in this batch run.
-                # Prevents two scenarios from writing/reading the same CLMLF00X.SNX.
                 scenario_run.setdefault("dssat", {})["sce_name"] = f"F{i:03d}"
                 base_cycle_days = _forecast_cycle_days(scenario_run.get("crop", {}).get("code"))
                 # DSSAT can access a few days beyond harvest; add buffer for WTH coverage.
                 wth_cycle_days = base_cycle_days + 15
                 scenario_run.setdefault("dssat", {})["cycle_days"] = base_cycle_days
                 totals = _scenario_ui_agro_totals(scenario_run)
+
                 # Guardrails: if user enabled fert/irrig, corresponding plans must exist.
                 if scenario_run.get("fertilization", {}).get("enabled") and not scenario_run.get("fertilization", {}).get("applications"):
                     out[sid] = {"status": "ERREUR"}
@@ -834,7 +1214,43 @@ def register_forecast_callbacks(app):
                     rain_sum = float(wdf["rain"].sum()) if not wdf.empty else 0.0
                     msgs.append(f"Scenario {i} - audit forecast: pluie cumulee fenetre campagne = {rain_sum:.1f} mm ({fpath.name})")
 
-                write_forecast_wth_for_scenario(scenario_run, BASE_DIR / "dssat", cycle_days=wth_cycle_days)
+                # Forecast-only stochastic downscaling (FResampler1) configuration.
+                fcfg = scenario_run.get("forecast", {}) or {}
+                method = str(fcfg.get("downscaling_method", "FRESAMPLER1") or "FRESAMPLER1").upper()
+                try:
+                    n_real = int(fcfg.get("n_realizations", 20) or 20)
+                except Exception:
+                    n_real = 20
+                n_real = max(1, min(200, n_real))
+                try:
+                    block_days = int(fcfg.get("block_days", FRESAMPLER_DEFAULT_BLOCK_DAYS) or FRESAMPLER_DEFAULT_BLOCK_DAYS)
+                except Exception:
+                    block_days = FRESAMPLER_DEFAULT_BLOCK_DAYS
+                block_days = max(1, block_days)
+
+                realizations = []
+                if method == "FRESAMPLER1":
+                    seed = abs(hash(f"{sid}:{i}")) % (2**31)
+                    probs = fcfg.get("terciles") or fcfg.get("probs")
+                    realizations = generate_fresampler_realizations_for_scenario(
+                        scenario_run,
+                        cycle_days=wth_cycle_days,
+                        n_realizations=n_real,
+                        block_days=block_days,
+                        probs=probs,
+                        random_seed=seed,
+                    )
+                    counts = {}
+                    for rr in realizations:
+                        counts[rr["category"]] = counts.get(rr["category"], 0) + 1
+                    msgs.append(
+                        f"Scenario {i} - Prevision probabiliste: {len(realizations)} realisations "
+                        f"(BN={counts.get('BN',0)}, NN={counts.get('NN',0)}, AN={counts.get('AN',0)})"
+                    )
+                    write_forecast_wth_from_dataframe(scenario_run, realizations[0]["weather_df"], BASE_DIR / "dssat")
+                else:
+                    write_forecast_wth_for_scenario(scenario_run, BASE_DIR / "dssat", cycle_days=wth_cycle_days)
+
                 val = validate_forecast_inputs(scenario_run, BASE_DIR, cycle_days=wth_cycle_days)
                 if val.get("errors"):
                     out[sid] = {"status": "ERREUR"}
@@ -850,82 +1266,97 @@ def register_forecast_callbacks(app):
                     out[sid] = {"status": "ERREUR"}
                     msgs.append(f"Scenario {i} - fertilisation cochee mais aucun apport N/P/K > 0 ecrit dans le SNX")
                     continue
-                r = run_dssat_simulation(str(snx_path), dssat_workdir=str(BASE_DIR / "dssat"))
-                if r.get("returncode") != 0:
-                    out[sid] = {"status": "ERREUR"}
-                    msgs.append(f"Scenario {i} - DSSAT erreur ({r.get('returncode')})")
-                    continue
-                # parse rapide Summary.OUT
-                m = {"status": "SUCCES"}
+
+                metrics_all = []
                 warns = []
-                run_metrics = _parse_run_metrics_from_stdout(r.get("stdout", ""))
-                sp = BASE_DIR / "dssat" / "Summary.OUT"
-                if sp.exists():
-                    txt = sp.read_text(encoding="latin-1", errors="ignore").splitlines()
-                    head = None
-                    vals = None
-                    for ln in txt:
-                        s = ln.strip()
-                        if not s:
-                            continue
-                        if s.startswith("@"):
-                            head = s.split()
-                            if head and head[0] == "@":
-                                head = head[1:]
-                            continue
-                        if head and s[:1].isdigit():
-                            cand = s.split()
-                            if len(cand) >= 10:
-                                vals = cand
-                    if head and vals:
-                        row = {k: vals[idx] for idx, k in enumerate(head) if idx < len(vals)}
-                        for k in ["HWAM", "CWAM", "PRCM", "IRCM", "ETCM", "MDAPS"]:
-                            if k in row:
-                                pass
-                        m["HARWT"] = row.get("HWAM", "-")
-                        m["TOPWT"] = row.get("CWAM", "-")
-                        m["RAIN"] = row.get("PRCM", "-")
-                        m["RAIN_SEAS"] = row.get("PRCP", "-")
-                        m["TIRR"] = row.get("IRCM", "-")
-                        m["CET"] = row.get("ETCM", "-")
-                        m["MAT"] = row.get("MDAPS", "-")
-                        m["FERTN"] = row.get("NICM", row.get("NI#M", "-"))
-                        if scenario_run.get("irrigation", {}).get("enabled"):
-                            tirr_val = _to_float(m.get("TIRR"))
-                            if tirr_val is None or tirr_val <= 0:
-                                warns.append("irrigation cochee mais TIRR=0 dans les sorties DSSAT")
-                        if scenario_run.get("fertilization", {}).get("enabled") and has_fert_inputs:
-                            fertn_val = _to_float(m.get("FERTN"))
-                            if fertn_val is None or fertn_val <= 0:
-                                warns.append("fertilisation bien ecrite dans SNX mais NICM/NI#M=0 (pas d'engrais mineral comptabilise par DSSAT)")
-                        rain_prcm = _to_float(m.get("RAIN"))
-                        rain_prcp = _to_float(m.get("RAIN_SEAS"))
-                        if (rain_prcm is None or rain_prcm == 0) and (rain_prcp is not None and rain_prcp > 0):
-                            warns.append(
-                                f"RAIN (PRCM)=0 mais PRCP={rain_prcp:.1f} mm dans Summary.OUT (pluie saisonniere detectee)"
-                            )
-                # Prefer RUN metrics from DSSAT console if available (less ambiguous than Summary split parsing).
-                for key in ["HARWT", "TOPWT", "RAIN", "TIRR", "CET", "MAT"]:
-                    if key in run_metrics:
-                        m[key] = run_metrics[key]
-                rain_disp = _to_float(m.get("RAIN"))
-                rain_seas = _to_float(m.get("RAIN_SEAS"))
-                if (rain_disp is None or rain_disp == 0) and (rain_seas is not None and rain_seas > 0):
-                    m["RAIN"] = f"{rain_seas:.1f}"
-                # Re-check critical controls against final displayed metrics.
+                failed_runs = 0
+                failed_crop_failure = 0
+                run_count = len(realizations) if realizations else 1
+
+                for ridx in range(run_count):
+                    if realizations and ridx > 0:
+                        write_forecast_wth_from_dataframe(
+                            scenario_run,
+                            realizations[ridx]["weather_df"],
+                            BASE_DIR / "dssat",
+                        )
+
+                    r = run_dssat_simulation(str(snx_path), dssat_workdir=str(BASE_DIR / "dssat"))
+                    rc = int(r.get("returncode") or 0)
+                    if rc != 0:
+                        # DSSAT code 10 often indicates crop establishment failure
+                        # (no emergence / no growth), not necessarily an input format crash.
+                        if rc == 10:
+                            failed_crop_failure += 1
+                        failed_runs += 1
+                        continue
+
+                    run_metrics = _parse_run_metrics_from_stdout(r.get("stdout", ""))
+                    summary_metrics = _parse_summary_metrics(BASE_DIR / "dssat" / "Summary.OUT")
+                    m_run = _merge_metrics(run_metrics, summary_metrics)
+                    metrics_all.append(m_run)
+
+                if not metrics_all:
+                    if failed_crop_failure == run_count and run_count > 0:
+                        out[sid] = {
+                            "status": "VIDE",
+                            "HARWT": "0",
+                            "HARWT_P20": "0",
+                            "HARWT_P80": "0",
+                            "TOPWT": "0",
+                            "RAIN": "0",
+                            "TIRR": "0",
+                            "CET": "0",
+                            "MAT": "-",
+                            "NREAL": run_count,
+                        }
+                        msgs.append(
+                            f"Scenario {i} - toutes les realisations ont echoue a l'installation (code DSSAT 10). "
+                            f"Verifier date de semis (souvent trop precoce) et/ou eau au semis."
+                        )
+                        continue
+                    out[sid] = {"status": "ERREUR"}
+                    msgs.append(f"Scenario {i} - DSSAT erreur ({failed_runs}/{run_count} realisations en echec)")
+                    continue
+
+                m = _aggregate_ensemble_metrics(metrics_all)
+                out[sid] = m
+
                 if scenario_run.get("irrigation", {}).get("enabled"):
                     tirr_val = _to_float(m.get("TIRR"))
                     if tirr_val is None or tirr_val <= 0:
                         warns.append("irrigation cochee mais TIRR=0 dans les sorties DSSAT")
-                out[sid] = m
-                msgs.append(f"Scenario {i} - prevision simulee: HARWT={m.get('HARWT','-')} kg/ha")
+
+                if scenario_run.get("fertilization", {}).get("enabled") and has_fert_inputs:
+                    fert_vals = [_to_float(x.get("FERTN")) for x in metrics_all]
+                    fert_vals = [v for v in fert_vals if v is not None]
+                    if fert_vals and max(fert_vals) <= 0:
+                        warns.append("fertilisation bien ecrite dans SNX mais NICM/NI#M=0 (pas d'engrais mineral comptabilise par DSSAT)")
+
+                rain_prcm = _to_float(m.get("RAIN"))
+                rain_seas_vals = [_to_float(x.get("RAIN_SEAS")) for x in metrics_all]
+                rain_seas_vals = [v for v in rain_seas_vals if v is not None]
+                if (rain_prcm is None or rain_prcm == 0) and rain_seas_vals and max(rain_seas_vals) > 0:
+                    warns.append(
+                        f"RAIN (PRCM)=0 mais PRCP median={pd.Series(rain_seas_vals).median():.1f} mm dans Summary.OUT"
+                    )
+
+                if len(metrics_all) > 1:
+                    msgs.append(
+                        f"Scenario {i} - prevision simulee ({len(metrics_all)} realisations, {failed_runs} echecs): "
+                        f"HARWT median={m.get('HARWT','-')} kg/ha "
+                        f"[P20={m.get('HARWT_P20','-')} ; P80={m.get('HARWT_P80','-')}]"
+                    )
+                else:
+                    msgs.append(f"Scenario {i} - prevision simulee: HARWT={m.get('HARWT','-')} kg/ha")
+
                 seen = set()
                 for w in warns:
                     if w in seen:
                         continue
                     seen.add(w)
-                    msgs.append(f"Scenario {i} - ⚠️ {w}")
+                    msgs.append(f"Scenario {i} - {w}")
             except Exception as e:
                 out[sid] = {"status": "ERREUR"}
                 msgs.append(f"Scenario {i} - erreur prevision: {str(e)[:180]}")
-        return html.Ul([html.Li(m) for m in msgs]), out
+        return _build_forecast_results_view(scenarios, out, msgs), out
