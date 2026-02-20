@@ -1,0 +1,186 @@
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@600;700&family=Manrope:wght@400;600;700;800&display=swap");
+
+:root {
+  --sim-bg-a: #f5f1e6;
+  --sim-bg-b: #e5f2df;
+  --sim-bg-c: #d5e8da;
+  --sim-ink: #1f3427;
+  --sim-muted: #4e6a58;
+  --sim-card: #fffef8;
+  --sim-border: #d3dfce;
+  --sim-shadow: 0 14px 32px rgba(27, 63, 42, 0.11);
+  --sim-green: #2f7a4b;
+  --sim-green-2: #1f6e44;
+  --sim-gold: #c79a3d;
+  --sim-danger: #b34b3f;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  font-family: "Manrope", "Trebuchet MS", sans-serif;
+  color: var(--sim-ink);
+  background:
+    radial-gradient(circle at 8% 8%, rgba(255, 255, 255, 0.75) 0%, rgba(255, 255, 255, 0) 33%),
+    radial-gradient(circle at 90% 12%, rgba(231, 242, 223, 0.9) 0%, rgba(231, 242, 223, 0) 36%),
+    linear-gradient(135deg, var(--sim-bg-a) 0%, var(--sim-bg-b) 48%, var(--sim-bg-c) 100%);
+}
+
+.simagri-page {
+  padding-top: 0.65rem;
+  padding-bottom: 1.25rem;
+}
+
+.simagri-page h1,
+.simagri-page h2,
+.simagri-page h3,
+.simagri-page h4,
+.simagri-page h5,
+.simagri-page .card-header {
+  font-family: "Fraunces", "Book Antiqua", serif;
+  letter-spacing: 0.2px;
+  color: #173326;
+}
+
+.simagri-page .text-muted {
+  color: var(--sim-muted) !important;
+}
+
+.simagri-page .card {
+  border: 1px solid var(--sim-border);
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fffef8 0%, #fffdf2 100%);
+  box-shadow: var(--sim-shadow);
+  overflow: hidden;
+  animation: sim-rise 0.48s ease both;
+}
+
+.simagri-page .card-header {
+  border-bottom: 1px solid #c7d8c2;
+  background: linear-gradient(135deg, #f3faef 0%, #e7f3e0 55%, #e1eed7 100%);
+  font-weight: 700;
+}
+
+.simagri-page .btn {
+  border-radius: 12px;
+  font-weight: 700;
+  border-width: 1px;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.simagri-page .btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(40, 74, 55, 0.22);
+}
+
+.simagri-page .btn-primary {
+  background: linear-gradient(135deg, #2f7a4b 0%, #255f3d 100%);
+  border-color: #255f3d;
+}
+
+.simagri-page .btn-success {
+  background: linear-gradient(135deg, #3f8f55 0%, #2f7a4b 100%);
+  border-color: #2f7a4b;
+}
+
+.simagri-page .btn-secondary {
+  background: linear-gradient(135deg, #5f7f65 0%, #4f6957 100%);
+  border-color: #4f6957;
+}
+
+.simagri-page .btn-danger {
+  background: linear-gradient(135deg, #c75f45 0%, #b34b3f 100%);
+  border-color: #a44339;
+}
+
+.simagri-page .btn-info {
+  background: linear-gradient(135deg, #5a9f8f 0%, #3f8576 100%);
+  border-color: #3f8576;
+  color: #f7fffc;
+}
+
+.simagri-page .form-control,
+.simagri-page .form-select,
+.simagri-page .Select-control,
+.simagri-page .DateInput_input {
+  border-radius: 10px !important;
+  border: 1px solid #b8ccb8 !important;
+  background-color: #fffcf4 !important;
+}
+
+.simagri-page .form-control:focus,
+.simagri-page .form-select:focus,
+.simagri-page .Select-control.is-focused,
+.simagri-page .DateInput_input:focus {
+  border-color: #3d8650 !important;
+  box-shadow: 0 0 0 0.2rem rgba(61, 134, 80, 0.18) !important;
+}
+
+.simagri-page .Select-menu-outer {
+  border: 1px solid #b8ccb8;
+  border-radius: 10px;
+  background: #fffdf7;
+}
+
+.simagri-page .alert-info {
+  border-color: #bad5c3;
+  background-color: #edf8f0;
+  color: #214734;
+}
+
+.simagri-page .alert-secondary {
+  border-color: #d6e1ce;
+  background-color: #f6faef;
+  color: #38503f;
+}
+
+.simagri-page .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.simagri-page .dash-table-container th {
+  background: #e9f4e7 !important;
+  color: #1e3e2e !important;
+  border-color: #cadcc5 !important;
+}
+
+.simagri-page .dash-table-container td {
+  border-color: #e1e9d8 !important;
+}
+
+.simagri-page .leaflet-container {
+  border-radius: 14px;
+  border: 1px solid #c1d8c2;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+}
+
+.simagri-home h1 {
+  font-size: clamp(2.2rem, 4vw, 3.4rem);
+}
+
+.simagri-home .btn {
+  min-height: 96px;
+}
+
+@keyframes sim-rise {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 991px) {
+  .simagri-page {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+}
+

@@ -82,6 +82,7 @@ def display_page(pathname):
                 ),
             ],
             fluid=True,
+            className="simagri-page simagri-docs",
         )
 
     # Page d'accueil par défaut

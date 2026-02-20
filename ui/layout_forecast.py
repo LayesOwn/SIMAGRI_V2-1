@@ -26,6 +26,7 @@ current_year = datetime.datetime.now().year
 def layout_forecast():
     return dbc.Container(
         fluid=True,
+        className="simagri-page simagri-forecast",
         children=[
             dcc.Store(id="forecast-scenario-store", data=[]),
             dcc.Store(id="forecast-fertilization-store", data=[]),

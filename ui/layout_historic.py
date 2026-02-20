@@ -635,4 +635,4 @@ def layout_historic():
             )
         ]),
 
-    ], fluid=True)
+    ], fluid=True, className="simagri-page simagri-historic")

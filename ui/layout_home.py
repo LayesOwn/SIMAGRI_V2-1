@@ -10,7 +10,7 @@ def layout_home():
     return dbc.Container(
 
         fluid=True,
-        className="vh-100 d-flex align-items-center",
+        className="simagri-page simagri-home vh-100 d-flex align-items-center",
         children=[
 
             dbc.Row(
