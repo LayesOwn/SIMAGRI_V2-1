@@ -769,7 +769,7 @@ def register_callbacks(app):
     )
     def toggle_irrig(use):
         """Affiche/cache le bloc irrigation"""
-        return {"display": "block"} if use else {"display": "none"}
+        return {"display": "block"} if use == "MANUAL" else {"display": "none"}
 
     @app.callback(
         Output("socio-block", "style"),
@@ -808,7 +808,7 @@ def register_callbacks(app):
             "ML",          # crop
             "court",       # cycle
             False,         # fertilization
-            False,         # irrigation
+            "NONE",        # irrigation
             "single",      # simulation_mode
             1,             # area_ha
             ["Labour"],    # prep_sol
@@ -837,12 +837,12 @@ def register_callbacks(app):
             State("crop", "value"),
         ],
     )
-    def manage_irrigation(use_irrig, add_clicks, auto_clicks, days, mms, prices, store, crop):
+    def manage_irrigation(mode, add_clicks, auto_clicks, days, mms, prices, store, crop):
         """
         Gère l'ajout et la modification des irrigations
         """
 
-        if not use_irrig:
+        if mode != "MANUAL":
             return [], 0
 
         if not store:
@@ -1257,7 +1257,7 @@ def register_callbacks(app):
         recommended_sowing_date,
         fertilization,
         fertilization_plan,
-        irrigation,
+        irrigation_mode,
         irrigation_plan,
         fert_cost,
         irrig_cost,
@@ -1305,6 +1305,9 @@ def register_callbacks(app):
         # Si la section socio-economique est ouverte, on prend le total calcule.
         fixed_cost = (total_cost or 0) if (toggle_socio_clicks or 0) > 0 else 0
 
+        irrig_enabled = irrigation_mode in ("MANUAL", "AUTO")
+        irrig_method = irrigation_mode if irrigation_mode in ("MANUAL", "AUTO") else "NONE"
+
         scenario = build_scenario_from_ui(
             scenario_id=f"S{len(stored_scenarios) + 1:03d}",
             department=department,
@@ -1317,8 +1320,8 @@ def register_callbacks(app):
             recommended_sowing_prob=None,
             fertilization=fertilization,
             fertilization_plan=fertilization_plan or [],
-            irrigation=irrigation,
-            irrigation_plan=irrigation_plan or [],
+            irrigation=irrig_enabled,
+            irrigation_plan=(irrigation_plan or []) if irrig_method == "MANUAL" else [],
             costs={
                 "CropPrice": 200,
                 "NFertCost": fert_cost or 0,
@@ -1328,6 +1331,7 @@ def register_callbacks(app):
                 "FixedCosts": fixed_cost,
             },
         )
+        scenario.setdefault("irrigation", {})["method"] = irrig_method
 
         # --------------------------------------------------
         # 2️⃣ Ajouter au scenario-store

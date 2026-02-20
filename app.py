@@ -15,7 +15,7 @@ import os
 
 # Layouts
 from ui.layout_home import layout_home
-from ui.layout_main import layout_main
+from ui.layout_historic import layout_historic
 from ui.layout_forecast import layout_forecast
 
 external_stylesheets = [
@@ -54,7 +54,7 @@ app.layout = html.Div([
 def display_page(pathname):
 
     if pathname == "/historique":
-        return layout_main()
+        return layout_historic()
 
     elif pathname == "/prevision":
         return layout_forecast()

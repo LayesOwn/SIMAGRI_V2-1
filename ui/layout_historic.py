@@ -1,5 +1,5 @@
 # ==========================================================
-# layout_main.py
+# layout_historic.py
 # Interface principale SIMAGRI v2
 # ==========================================================
 
@@ -25,7 +25,7 @@ from domain.socio_eco import (SOIL_PREPARATION, LABOR, POST_HARVEST, SEEDS)
 
 
 
-def layout_main():
+def layout_historic():
 
     return dbc.Container([
 
@@ -260,10 +260,11 @@ def layout_main():
                                     dbc.RadioItems(
                                         id="irrigation",
                                         options=[
-                                            {"label": "Non", "value": False},
-                                            {"label": "Oui", "value": True},
+                                            {"label": "Non", "value": "NONE"},
+                                            {"label": "Manuel", "value": "MANUAL"},
+                                            {"label": "Auto", "value": "AUTO"},
                                         ],
-                                        value=False,
+                                        value="NONE",
                                         inline=True
                                     )
                                 ]),

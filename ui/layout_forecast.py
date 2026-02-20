@@ -169,6 +169,9 @@ def layout_forecast():
                                                                 value=False,
                                                                 inline=True,
                                                             ),
+                                                            dbc.FormText(
+                                                                "Non = aucune fertilisation, Oui = saisie manuelle des apports."
+                                                            ),
                                                         ],
                                                         md=12,
                                                     ),
@@ -186,6 +189,14 @@ def layout_forecast():
                                                         color="secondary",
                                                         size="sm",
                                                         className="mb-2",
+                                                    ),
+                                                    dbc.Row(
+                                                        [
+                                                            dbc.Col(html.Strong("Type"), md=4),
+                                                            dbc.Col(html.Strong("Quantite (kg/ha)"), md=4),
+                                                            dbc.Col(html.Strong("Cout (FCFA)"), md=4),
+                                                        ],
+                                                        className="mb-1",
                                                     ),
                                                     html.Div(id="forecast-fertilization-lines"),
                                                     dbc.Alert(

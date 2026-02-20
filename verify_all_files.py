@@ -20,7 +20,7 @@ REQUIRED_FILES = {
     "🏗️ STRUCTURE": {
         "ui/__init__.py": "Package UI",
         "ui/callbacks.py": "Callbacks Dash",
-        "ui/layout_main.py": "Layout principal",
+        "ui/layout_historic.py": "Layout principal",
         "ui/layout_home.py": "Layout accueil",
         "ui/components.py": "Composants réutilisables",
         "domain/__init__.py": "Package domaine",

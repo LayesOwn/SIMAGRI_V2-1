@@ -47,8 +47,16 @@ def write_snx_file(scenario, x_filename, output_dir):
     is_forecast = bool(scenario.get("dssat", {}).get("forecast_mode")) or str(
         scenario.get("dssat", {}).get("sce_name", "")
     ).startswith("F")
-    # Match historical logic: reported-date events use "D" and MI/MF factors.
-    if is_forecast and irrigation_enabled and irrigation_method == "MANUAL":
+    def _valid_manual_event(ev):
+        try:
+            return (float(ev.get("mm", 0) or 0) > 0) and (int(ev.get("doy", -1)) >= 0)
+        except Exception:
+            return False
+
+    has_manual_irrig_events = any(_valid_manual_event(ev) for ev in irrigation_schedule)
+    # Use reported-date irrigation whenever manual schedule is defined
+    # (forecast and historical), otherwise fallback to automatic if enabled.
+    if irrigation_enabled and irrigation_method == "MANUAL" and has_manual_irrig_events:
         ma_irrig = "D"
         mi_factor = 1
     else:
@@ -112,8 +120,8 @@ def write_snx_file(scenario, x_filename, output_dir):
             f" 1 {pdate:>5} {e_date:>5} {planting_density:>5} {planting_density:>5}     S     R    60     0     5   -99   -99   -99   -99   -99                        FIELD\n\n"
         )
 
-        # Manual irrigation events for forecast when requested.
-        if irrigation_enabled and is_forecast and irrigation_method == "MANUAL":
+        # Manual irrigation events for any scenario when requested.
+        if irrigation_enabled and irrigation_method == "MANUAL" and has_manual_irrig_events:
             f.write("*IRRIGATION AND WATER MANAGEMENT\n")
             f.write("@I  EFIR  IDEP  ITHR  IEPT  IOFF  IAME  IAMT IRNAME\n")
             f.write(" 1     1    30    50   100 GS000 IR001    10 -99\n")
