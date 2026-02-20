@@ -184,6 +184,19 @@ def _parse_run_metrics_from_stdout(stdout_text):
     }
 
 
+def _forecast_cycle_days(crop_code):
+    """
+    Default cycle length (days) for forecast simulations.
+    Used to size the WTH window; a small buffer is added at runtime.
+    """
+    return {
+        "ML": 210,
+        "SG": 210,
+        "RI": 210,
+        "PN": 240,
+    }.get((crop_code or "").upper(), 210)
+
+
 def _scenario_ui_agro_totals(scenario):
     """
     Totaux agronomiques derives du scenario UI (forecast):
@@ -219,27 +232,9 @@ def _scenario_ui_agro_totals(scenario):
 def _prepare_forecast_scenario_for_dssat(scenario):
     """
     Forecast-only normalization before SNX write:
-    - convert fertilizer dates from JAS (UI) to absolute YYDDD for DSSAT FDATE
+    - keep management event dates as DAP/JAS (DSSAT reported events use DAP)
     """
-    out = copy.deepcopy(scenario)
-    pdt = pd.to_datetime(
-        out.get("crop", {}).get("planting_date") or out.get("dssat", {}).get("PltDate"),
-        errors="coerce",
-    )
-    if pd.isna(pdt):
-        return out
-
-    apps = out.get("fertilization", {}).get("applications") or []
-    for app in apps:
-        jas = _to_float(app.get("doy"))
-        if jas is None:
-            continue
-        try:
-            fdate = pdt + pd.Timedelta(days=int(round(jas)))
-            app["doy"] = int(fdate.strftime("%y%j"))
-        except Exception:
-            continue
-    return out
+    return copy.deepcopy(scenario)
 
 
 def _forecast_scenario_to_table_row(s):
@@ -386,16 +381,50 @@ def register_forecast_callbacks(app):
         return {"display": "block"} if use else {"display": "none"}
 
     @app.callback(Output("forecast-irrigation-block", "style"), Input("forecast-irrigation", "value"))
-    def toggle_irrig(use):
-        return {"display": "block"} if use else {"display": "none"}
+    def toggle_irrig(mode):
+        return {"display": "block"} if mode == "MANUAL" else {"display": "none"}
 
     @app.callback(
         Output("forecast-socio-block", "style"),
         Input("forecast-toggle-socio", "n_clicks"),
+        Input("forecast-reset-scenarios", "n_clicks"),
         prevent_initial_call=True,
     )
-    def toggle_socio(_):
+    def toggle_socio(_toggle, _reset):
+        trig = get_triggered_id()
+        if trig == "forecast-reset-scenarios":
+            return {"display": "none"}
         return {"display": "block"}
+
+    @app.callback(
+        [
+            Output("forecast-department", "value"),
+            Output("forecast-crop", "value"),
+            Output("forecast-cycle", "value"),
+            Output("forecast-fertilization", "value"),
+            Output("forecast-irrigation", "value"),
+            Output("forecast-area-ha", "value"),
+            Output("forecast-prep-sol", "value"),
+            Output("forecast-seed-type", "value"),
+            Output("forecast-post-harvest", "value"),
+            Output("forecast-labor-type", "value"),
+        ],
+        Input("forecast-reset-scenarios", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_forecast_ui(_reset):
+        return (
+            "Kaolack",      # department
+            "ML",           # crop
+            "court",        # cycle
+            False,          # fertilization
+            "NONE",         # irrigation
+            1,              # area_ha
+            ["Labour"],     # prep_sol
+            "Semence locale",  # seed_type
+            [],             # post_harvest
+            ["Semis"],      # labor_type
+        )
 
     @app.callback(
         [
@@ -537,8 +566,8 @@ def register_forecast_callbacks(app):
             State("forecast-crop", "value"),
         ],
     )
-    def manage_irrig(use, add_clicks, auto_clicks, names, days, mms, prices, store, crop):
-        if not use:
+    def manage_irrig(mode, add_clicks, auto_clicks, names, days, mms, prices, store, crop):
+        if mode != "MANUAL":
             return [], 0
         store = store or [{"name": "Irrigation 1", "doy": 20, "mm": 20, "price": 250}]
         trig = get_triggered_id()
@@ -643,6 +672,8 @@ def register_forecast_callbacks(app):
             y = datetime.now().year
         socio_enabled = (socio_clicks or 0) > 0
         fixed_cost = (total_cost or 0) if socio_enabled else 0
+        irrig_enabled = irrig in ("MANUAL", "AUTO")
+        irrig_method = irrig if irrig in ("MANUAL", "AUTO") else "NONE"
         scenario = build_scenario_from_ui(
             scenario_id=f"F{next_idx:03d}",
             department=dept,
@@ -655,8 +686,8 @@ def register_forecast_callbacks(app):
             recommended_sowing_prob=None,
             fertilization=fert,
             fertilization_plan=fert_plan or [],
-            irrigation=irrig,
-            irrigation_plan=irrig_plan or [],
+            irrigation=irrig_enabled,
+            irrigation_plan=(irrig_plan or []) if irrig_method == "MANUAL" else [],
             costs={
                 "CropPrice": 200,
                 "NFertCost": fert_cost or 0,
@@ -666,6 +697,8 @@ def register_forecast_callbacks(app):
                 "FixedCosts": fixed_cost,
             },
         )
+        scenario.setdefault("irrigation", {})["method"] = irrig_method
+        scenario.setdefault("dssat", {})["forecast_mode"] = True
         scenario.setdefault("economy", {})["SocioEnabled"] = socio_enabled
         store.append(scenario)
         return store
@@ -718,15 +751,26 @@ def register_forecast_callbacks(app):
         if not scenarios:
             return "Aucun scenario previsionnel a simuler.", (results_store or {})
 
-        out = dict(results_store or {})
+        trig = get_triggered_id()
+        # Always start forecast runs from a clean results set.
+        out = {} if trig == "forecast-run-simulation" else dict(results_store or {})
         msgs = []
         for i, scenario in enumerate(scenarios, start=1):
             sid = scenario.get("id_scenario")
             try:
-                scenario_run = _prepare_forecast_scenario_for_dssat(scenario)
+                # Rebuild each forecast scenario from scratch to avoid carry-over.
+                scenario_run = copy.deepcopy(scenario or {})
+                scenario_run.pop("dssat", None)
+                scenario_run.pop("results", None)
+                scenario_run = _prepare_forecast_scenario_for_dssat(scenario_run)
+                scenario_run.setdefault("dssat", {})["forecast_mode"] = True
                 # Force unique DSSAT run name per scenario in this batch run.
                 # Prevents two scenarios from writing/reading the same CLMLF00X.SNX.
                 scenario_run.setdefault("dssat", {})["sce_name"] = f"F{i:03d}"
+                base_cycle_days = _forecast_cycle_days(scenario_run.get("crop", {}).get("code"))
+                # DSSAT can access a few days beyond harvest; add buffer for WTH coverage.
+                wth_cycle_days = base_cycle_days + 15
+                scenario_run.setdefault("dssat", {})["cycle_days"] = base_cycle_days
                 totals = _scenario_ui_agro_totals(scenario_run)
                 # Guardrails: if user enabled fert/irrig, corresponding plans must exist.
                 if scenario_run.get("fertilization", {}).get("enabled") and not scenario_run.get("fertilization", {}).get("applications"):
@@ -755,11 +799,11 @@ def register_forecast_callbacks(app):
                         out[sid] = {"status": "ERREUR"}
                         msgs.append(f"Scenario {i} - fertilisation cochee mais apports N/P/K nuls")
                         continue
-                if scenario_run.get("irrigation", {}).get("enabled") and not scenario_run.get("irrigation", {}).get("schedule"):
+                if scenario_run.get("irrigation", {}).get("enabled") and (scenario_run.get("irrigation", {}).get("method") == "MANUAL") and not scenario_run.get("irrigation", {}).get("schedule"):
                     out[sid] = {"status": "ERREUR"}
                     msgs.append(f"Scenario {i} - irrigation activee mais aucun tour d'eau defini")
                     continue
-                if scenario_run.get("irrigation", {}).get("enabled") and totals["irr_mm"] <= 0:
+                if scenario_run.get("irrigation", {}).get("enabled") and (scenario_run.get("irrigation", {}).get("method") == "MANUAL") and totals["irr_mm"] <= 0:
                     out[sid] = {"status": "ERREUR"}
                     msgs.append(f"Scenario {i} - irrigation activee mais volume total nul")
                     continue
@@ -790,8 +834,8 @@ def register_forecast_callbacks(app):
                     rain_sum = float(wdf["rain"].sum()) if not wdf.empty else 0.0
                     msgs.append(f"Scenario {i} - audit forecast: pluie cumulee fenetre campagne = {rain_sum:.1f} mm ({fpath.name})")
 
-                write_forecast_wth_for_scenario(scenario_run, BASE_DIR / "dssat", cycle_days=210)
-                val = validate_forecast_inputs(scenario_run, BASE_DIR, cycle_days=210)
+                write_forecast_wth_for_scenario(scenario_run, BASE_DIR / "dssat", cycle_days=wth_cycle_days)
+                val = validate_forecast_inputs(scenario_run, BASE_DIR, cycle_days=wth_cycle_days)
                 if val.get("errors"):
                     out[sid] = {"status": "ERREUR"}
                     msgs.append(f"Scenario {i} - erreurs validation: {' | '.join(val['errors'][:2])}")

@@ -2,7 +2,13 @@ from datetime import timedelta
 from pathlib import Path
 import pandas as pd
 
-from domain.geography import get_department_code, get_department_gps, get_department_wth_code
+import unicodedata
+from domain.geography import (
+    get_department_code,
+    get_department_gps,
+    get_department_wth_code,
+    WTH_STATIONS,
+)
 
 
 FORECAST_DIR = Path(__file__).resolve().parents[2] / "data" / "Donnees_meteo"
@@ -113,7 +119,23 @@ def write_forecast_wth_for_scenario(scenario, dssat_dir, cycle_days=210):
     win = df[(df["date"] >= pd.Timestamp(start)) & (df["date"] <= pd.Timestamp(end))].copy()
     win = win.sort_values("date")
 
-    station = (get_department_wth_code(department) or "DEPT")[:4].upper()
+    # Keep full DSSAT station code (often 5 chars, e.g. KAOLA) to match historical WTH format.
+    def _norm(val):
+        if not val:
+            return ""
+        n = unicodedata.normalize("NFD", str(val))
+        n = "".join(c for c in n if unicodedata.category(c) != "Mn")
+        return n.strip().lower().replace("-", " ")
+
+    station = None
+    dkey = _norm(department)
+    for name, code in WTH_STATIONS.items():
+        if _norm(name) == dkey:
+            station = code
+            break
+    station = (station or get_department_wth_code(department) or "DEPT").upper()
+    # DSSAT WTH header in this stack uses 4-char station codes (YYDDD format).
+    station = station[:4]
     lat, lon = get_department_gps(department)
     dssat_dir = Path(dssat_dir)
     dssat_dir.mkdir(parents=True, exist_ok=True)
@@ -122,9 +144,11 @@ def write_forecast_wth_for_scenario(scenario, dssat_dir, cycle_days=210):
     with open(wth_path, "w", encoding="ascii", newline="\r\n") as f:
         f.write(f"*WEATHER DATA : {department}\n")
         f.write("@ INSI      LAT     LONG  ELEV   TAV   AMP REFHT WNDHT\n")
+        # Match historical writer spacing used in domain/climate/weather.py.
         f.write(f"  {station:<4}  {lat:8.3f} {lon:8.3f}    10  27.0  10.0  2.0  3.0\n")
         f.write("@DATE  SRAD  TMAX  TMIN  RAIN\n")
         for _, r in win.iterrows():
+            # Use 5-digit YYDDD (consistent with historical writer).
             token = r["date"].strftime("%y%j")
             rain = float(r["rain"])
             tmax = float(r["tmax"])

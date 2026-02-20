@@ -223,11 +223,15 @@ def layout_forecast():
                                                             dbc.RadioItems(
                                                                 id="forecast-irrigation",
                                                                 options=[
-                                                                    {"label": "Non", "value": False},
-                                                                    {"label": "Oui", "value": True},
+                                                                    {"label": "Non", "value": "NONE"},
+                                                                    {"label": "Oui", "value": "MANUAL"},
+                                                                    {"label": "Auto", "value": "AUTO"},
                                                                 ],
-                                                                value=False,
+                                                                value="NONE",
                                                                 inline=True,
+                                                            ),
+                                                            dbc.FormText(
+                                                                "Non = aucune irrigation, Oui = saisie manuelle, Auto = irrigation automatique DSSAT."
                                                             ),
                                                         ],
                                                         md=12,

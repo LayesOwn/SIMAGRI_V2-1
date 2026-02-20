@@ -35,6 +35,7 @@ def write_snx_file(scenario, x_filename, output_dir):
     )
     soil_code = str(soil_code)[:10]
     irrigation_enabled = bool(scenario.get("irrigation", {}).get("enabled"))
+    irrigation_method = (scenario.get("irrigation", {}).get("method") or "AUTO").upper()
     fertilization_enabled = bool(scenario.get("fertilization", {}).get("enabled"))
     irrigation_schedule = scenario.get("irrigation", {}).get("schedule") or []
     auto_ir_amt = 10
@@ -43,18 +44,27 @@ def write_snx_file(scenario, x_filename, output_dir):
             auto_ir_amt = int(round(float(irrigation_schedule[0].get("mm", 10) or 10)))
         except Exception:
             auto_ir_amt = 10
-    # SNX templates in this project drive irrigation via AUTOMATIC MANAGEMENT.
-    # Use "A" (automatic) when irrigation is enabled to activate @N IRRIGATION.
-    ma_irrig = "A" if irrigation_enabled else "N"
-    ma_ferti = "D" if fertilization_enabled else "N"
-    # Keep MI/MF factor levels at 0 to avoid requiring extra factor sections
-    # (*IRRIGATION/*FERTILIZERS factor tables) not used by our template flow.
-    mi_factor = 0
-    mf_factor = 1 if fertilization_enabled else 0
+    is_forecast = bool(scenario.get("dssat", {}).get("forecast_mode")) or str(
+        scenario.get("dssat", {}).get("sce_name", "")
+    ).startswith("F")
+    # Match historical logic: reported-date events use "D" and MI/MF factors.
+    if is_forecast and irrigation_enabled and irrigation_method == "MANUAL":
+        ma_irrig = "D"
+        mi_factor = 1
+    else:
+        ma_irrig = "A" if irrigation_enabled else "N"
+        mi_factor = 0
+    if is_forecast and fertilization_enabled:
+        ma_ferti = "D"
+        mf_factor = 1
+    else:
+        ma_ferti = "D" if fertilization_enabled else "N"
+        mf_factor = 1 if fertilization_enabled else 0
 
     cultivar_code, cultivar_name = resolve_cultivar(crop, cultivar_input, "/app/dssat")
 
-    pdate, icdat, hdate = dssat_dates(planting_date)
+    cycle_days = int(d.get("cycle_days", 210) or 210)
+    pdate, icdat, hdate = dssat_dates(planting_date, cycle_days=cycle_days)
 
     snx_name = f"CL{crop}{scenario_name[:4]}.SNX"
     snx_path = output_dir / snx_name
@@ -102,6 +112,27 @@ def write_snx_file(scenario, x_filename, output_dir):
             f" 1 {pdate:>5} {e_date:>5} {planting_density:>5} {planting_density:>5}     S     R    60     0     5   -99   -99   -99   -99   -99                        FIELD\n\n"
         )
 
+        # Manual irrigation events for forecast when requested.
+        if irrigation_enabled and is_forecast and irrigation_method == "MANUAL":
+            f.write("*IRRIGATION AND WATER MANAGEMENT\n")
+            f.write("@I  EFIR  IDEP  ITHR  IEPT  IOFF  IAME  IAMT IRNAME\n")
+            f.write(" 1     1    30    50   100 GS000 IR001    10 -99\n")
+            # Match DSSAT template spacing for parser robustness.
+            f.write("@I IDATE  IROP IRVAL\n")
+            row = 0
+            for ev in (scenario.get("irrigation", {}).get("schedule") or []):
+                idate = int(ev.get("doy", -99))
+                amt = float(ev.get("mm", 0) or 0)
+                if idate < 0 or amt <= 0:
+                    continue
+                # Reported irrigation uses DAP (days after planting).
+                amt_str = repr(amt)
+                # Keep spacing consistent with historical writer.
+                row += 1
+                # DSSAT expects the treatment number in column 1 (always "1" here).
+                f.write(f" 1   {idate:>3} IR001 {amt_str:>5}\n")
+            f.write("\n")
+
         f.write("*FERTILIZERS (INORGANIC)\n")
         f.write("@F FDATE  FMCD  FACD  FDEP  FAMN  FAMP  FAMK  FAMC  FAMO  FOCD FERNAME\n")
         write_fertilizers(f, scenario)
@@ -135,7 +166,7 @@ def write_snx_file(scenario, x_filename, output_dir):
     return snx_path
 
 
-def dssat_dates(planting_date):
+def dssat_dates(planting_date, cycle_days=210):
     dt = parse_date(planting_date)
     doy = dt.timetuple().tm_yday
     pdate = f"{dt.year % 100:02d}{doy:03d}"
@@ -143,7 +174,7 @@ def dssat_dates(planting_date):
     ic_dt = dt - timedelta(days=1)
     icdat = f"{ic_dt.year % 100:02d}{ic_dt.timetuple().tm_yday:03d}"
 
-    hv_dt = dt + timedelta(days=210)
+    hv_dt = dt + timedelta(days=cycle_days)
     hdate = f"{hv_dt.year % 100:02d}{hv_dt.timetuple().tm_yday:03d}"
     return pdate, icdat, hdate
 
@@ -193,6 +224,7 @@ def resolve_cultivar(crop, cultivar, dssat_path):
 def write_fertilizers(file_obj, scenario):
     applications = scenario.get("fertilization", {}).get("applications", [])
     row = 0
+    is_forecast = bool(scenario.get("dssat", {}).get("forecast_mode")) or str(scenario.get("dssat", {}).get("sce_name", "")).startswith("F")
     for app in applications:
         doy = int(app.get("doy", -99))
         n_val = float(app.get("N", 0))
@@ -200,7 +232,13 @@ def write_fertilizers(file_obj, scenario):
         k_val = float(app.get("K", 0))
         if doy < 0:
             continue
+        fmcd = "FE005"
+        # Use the same valid codes/depth as DSSAT templates.
+        facd = "AP002"
+        fdep = 4
+        # DSSAT expects the treatment number in column 1 (always "1" here).
         row += 1
         file_obj.write(
-            f" {row:>1} {doy:>5} FE005 AP002     4 {n_val:>6.0f} {p_val:>6.0f} {k_val:>6.0f}   -99   -99   -99 -99\n"
+            f" 1   {doy:>3} {fmcd:>5} {facd:>5} {fdep:>5} "
+            f"{n_val:>5.0f} {p_val:>5.0f} {k_val:>5.0f}   -99   -99   -99 -99\n"
         )

@@ -171,9 +171,9 @@ def ensure_weather_aliases(dssat_workdir):
         if len(stem) < 4:
             continue
         alias = workdir / f"{stem[:4]}.WTH"
-        if alias.exists() or alias.resolve() == wth.resolve():
-            continue
         try:
+            if alias.resolve() == wth.resolve():
+                continue
             shutil.copy2(wth, alias)
             print(f"✅ Weather alias created: {alias.name} -> {wth.name}")
         except Exception as e:

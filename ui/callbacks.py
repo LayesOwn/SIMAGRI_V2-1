@@ -774,13 +774,48 @@ def register_callbacks(app):
     @app.callback(
         Output("socio-block", "style"),
         Input("toggle_socio", "n_clicks"),
+        Input("reset_scenarios", "n_clicks"),
         prevent_initial_call=True
     )
-    def toggle_socio(_):
-        """Affiche le bloc socio-économique"""
+    def toggle_socio(_toggle, _reset):
+        """Affiche/cache le bloc socio-economique"""
+        trig = get_triggered_id()
+        if trig == "reset_scenarios":
+            return {"display": "none"}
         return {"display": "block"}
 
-
+    @app.callback(
+        [
+            Output("department", "value"),
+            Output("crop", "value"),
+            Output("cycle", "value"),
+            Output("fertilization", "value"),
+            Output("irrigation", "value"),
+            Output("simulation_mode", "value"),
+            Output("area_ha", "value"),
+            Output("prep_sol", "value"),
+            Output("seed_type", "value"),
+            Output("post_harvest", "value"),
+            Output("labor_type", "value"),
+        ],
+        Input("reset_scenarios", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_main_ui(_reset):
+        year_now = datetime.now().year
+        return (
+            "Kaolack",     # department
+            "ML",          # crop
+            "court",       # cycle
+            False,         # fertilization
+            False,         # irrigation
+            "single",      # simulation_mode
+            1,             # area_ha
+            ["Labour"],    # prep_sol
+            "Semence locale",  # seed_type
+            [],            # post_harvest
+            ["Semis"],     # labor_type
+        )
     # ======================================================
     # 💧 IRRIGATION
     # ======================================================
@@ -1153,12 +1188,18 @@ def register_callbacks(app):
             Input("department", "value"),
             Input("hist_start_year", "value"),
             Input("hist_end_year", "value"),
+            Input("reset_scenarios", "n_clicks"),
         ],
     )
-    def clamp_hist_years_to_enacts(dept_name, y0, y1):
+    def clamp_hist_years_to_enacts(dept_name, y0, y1, reset_clicks):
         """
         Limite la plage historique a la couverture ENACTS du departement.
         """
+        trig = get_triggered_id()
+        if trig == "reset_scenarios":
+            year_now = datetime.now().year
+            y0 = year_now - 30
+            y1 = year_now - 1
         try:
             df = load_enacts(dept_name).sort_values("date")
             if df.empty:
@@ -1183,6 +1224,7 @@ def register_callbacks(app):
     @app.callback(
         Output("scenario-store", "data"),
         Input("add_scenario", "n_clicks"),
+        Input("reset_scenarios", "n_clicks"),
         State("scenario-store", "data"),
         State("department", "value"),
         State("crop", "value"),
@@ -1204,6 +1246,7 @@ def register_callbacks(app):
     )
     def add_scenario(
         n_clicks,
+        reset_clicks,
         stored_scenarios,
         department,
         crop,
@@ -1226,6 +1269,9 @@ def register_callbacks(app):
         Ajoute un nouveau scénario aux scénarios stockés
         et met à jour le tableau d'affichage
         """
+        trig = get_triggered_id()
+        if trig == "reset_scenarios":
+            return []
 
         # 🔒 Sécurité
         if stored_scenarios is None:
@@ -1313,16 +1359,20 @@ def register_callbacks(app):
             Output("simulation-results-store", "data"),
         ],
         Input("run_simulation", "n_clicks"),
+        Input("reset_scenarios", "n_clicks"),
         State("scenario-store", "data"),
         State("simulation-results-store", "data"),
         State("simulation_mode", "value"),
         prevent_initial_call=True,
     )
-    def run_dssat_from_ui(n_clicks, scenarios, sim_results, simulation_mode):
+    def run_dssat_from_ui(n_clicks, reset_clicks, scenarios, sim_results, simulation_mode):
         """
         Lance la simulation DSSAT historique sur l'intervalle d'annees choisi.
         """
 
+        trig = get_triggered_id()
+        if trig == "reset_scenarios":
+            return "Ajoutez un scenario puis cliquez sur Simuler.", {}
         if not n_clicks:
             return "Cliquez sur le bouton Simuler", (sim_results or {})
 
