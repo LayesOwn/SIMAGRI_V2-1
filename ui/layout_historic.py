@@ -36,6 +36,7 @@ def layout_historic():
         dcc.Store(id="simulation-results-store", data={}),
         dcc.Store(id="fertilization-store", data=[]),
         dcc.Store(id="irrigation-store", data=[]),
+        dcc.Download(id="hist-export-download"),
 
 
         # ==================================================
@@ -577,6 +578,33 @@ def layout_historic():
                         "backgroundColor": "#f6f8f4",
                     },
                 )
+            ),
+        ],
+    ),
+
+    dbc.Row(
+        className="g-2 mt-2",
+        children=[
+            dbc.Col(
+                dbc.Button(
+                    "Exporter simulation (CSV)",
+                    id="hist-export-simulation",
+                    color="secondary",
+                    className="w-100",
+                ),
+                md=6,
+            ),
+            dbc.Col(
+                dcc.Upload(
+                    id="hist-import-simulation",
+                    children=dbc.Button(
+                        "Importer simulation",
+                        color="secondary",
+                        className="w-100",
+                    ),
+                    multiple=False,
+                ),
+                md=6,
             ),
         ],
     ),

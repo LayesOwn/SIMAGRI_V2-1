@@ -8,27 +8,18 @@ import dash_bootstrap_components as dbc
 from pathlib import Path
 
 
-def _find_logo_filename(prefix):
+def _logo_src(candidates):
     assets_dir = Path(__file__).resolve().parents[1] / "assets"
-    tokens = [f"{prefix}.png", f"{prefix}.jpg", f"{prefix}.jpeg", f"{prefix}.webp", f"{prefix}.gif"]
-    for token in tokens:
-        p = assets_dir / token
-        if p.exists():
-            return token
-    for p in assets_dir.iterdir():
-        if not p.is_file():
-            continue
-        if p.suffix.lower() not in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
-            continue
-        if p.stem.lower().startswith(prefix.lower()):
-            return p.name
+    for name in candidates:
+        if (assets_dir / name).exists():
+            return f"/assets/{name}"
     return None
 
 
-def _partner_logo(prefix, label):
-    filename = _find_logo_filename(prefix)
-    if filename:
-        return html.Img(src=f"/assets/{filename}", className="partner-logo", alt=label)
+def _partner_logo(candidates, label):
+    src = _logo_src(candidates)
+    if src:
+        return html.Img(src=src, className="partner-logo", alt=label)
     return html.Div(label, className="partner-fallback")
 
 def layout_home():
@@ -50,22 +41,43 @@ def layout_home():
                             dbc.Row(
                                 className="justify-content-center g-3 mb-3",
                                 children=[
-                                    dbc.Col(_partner_logo("isra", "ISRA"), width="auto"),
-                                    dbc.Col(_partner_logo("anacim", "ANACIM"), width="auto"),
-                                    dbc.Col(_partner_logo("fao", "FAO"), width="auto"),
+                                    dbc.Col(
+                                        _partner_logo(
+                                            [
+                                                "isra_logo_new.png",
+                                                "isra_logo_50ans.png",
+                                                "lsp_50ans.png",
+                                                "isra_logo.png",
+                                            ],
+                                            "ISRA",
+                                        ),
+                                        width="auto",
+                                    ),
+                                    dbc.Col(
+                                        _partner_logo(
+                                            [
+                                                "lpao_sp_logo.png",
+                                                "lpao_sf_logo.png",
+                                                "lpao_sp.png",
+                                                "lpao_sf.png",
+                                            ],
+                                            "LPAO-SP",
+                                        ),
+                                        width="auto",
+                                    ),
+                                    dbc.Col(
+                                        _partner_logo(["anacim_logo.png"], "ANACIM"),
+                                        width="auto",
+                                    ),
+                                    dbc.Col(
+                                        _partner_logo(["fao_logo.png"], "FAO"),
+                                        width="auto",
+                                    ),
                                 ],
                             ),
 
                             # LOGO
-                            (
-                                html.Img(
-                                    src=f"/assets/{_find_logo_filename('simagri_logo') or _find_logo_filename('simagri')}",
-                                    style={"height": "120px"},
-                                    className="mb-4"
-                                )
-                                if (_find_logo_filename("simagri_logo") or _find_logo_filename("simagri"))
-                                else html.Div("SIMAGRI", className="simagri-logo-fallback mb-4")
-                            ),
+                            html.Div("SIMAGRI", className="simagri-logo-fallback mb-4"),
 
                             html.H1(
                                 "SIMAGRI",
@@ -116,7 +128,39 @@ def layout_home():
                                     ),
 
                                 ]
-                            )
+                            ),
+
+                            html.Hr(className="my-4"),
+                            dbc.Card(
+                                className="text-start",
+                                children=[
+                                    dbc.CardHeader("Equipe de developpement"),
+                                    dbc.CardBody(
+                                        [
+                                            html.P(
+                                                [
+                                                    html.Strong("Lead developpeur: "),
+                                                    "Abdoulaye Diop (Bioinformaticien - Biomathematicien) ",
+                                                    html.A(
+                                                        "dioplayes@gmail.com",
+                                                        href="mailto:dioplayes@gmail.com",
+                                                    ),
+                                                ],
+                                                className="mb-2",
+                                            ),
+                                            html.P("Collegues:", className="mb-1"),
+                                            html.Ul(
+                                                [
+                                                    html.Li("Dr Adama Faye"),
+                                                    html.Li("Dr Mbaye Diop"),
+                                                    html.Li("... reste de l'equipe a ajouter"),
+                                                ],
+                                                className="mb-0",
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                            ),
                         ]
                     )
                 ]

@@ -75,6 +75,32 @@ def layout_docs():
             html.H3("Documentation SIMAGRI", className="text-center my-3"),
             dbc.Card(
                 [
+                    dbc.CardHeader("Presentation du projet"),
+                    dbc.CardBody(
+                        [
+                            html.P(
+                                "SIMAGRI s'inscrit dans une dynamique d'aide a la decision agroclimatique "
+                                "pour accompagner la planification des campagnes agricoles au Senegal."
+                            ),
+                            html.P(
+                                "Le projet relie climat, pratiques culturales et simulation DSSAT pour "
+                                "produire des indicateurs directement exploitables par les producteurs, "
+                                "conseillers et equipes techniques."
+                            ),
+                            html.Ul(
+                                [
+                                    html.Li("Objectif: comparer des options de conduite (semis, fertilisation, irrigation)."),
+                                    html.Li("Finalite: identifier les scenarios les plus robustes en rendement et en risque."),
+                                    html.Li("Usage: analyse retrospective (historique) et exploration de campagnes futures (previsionnelle)."),
+                                ]
+                            ),
+                        ]
+                    ),
+                ],
+                className="mb-3",
+            ),
+            dbc.Card(
+                [
                     dbc.CardHeader("Mode de fonctionnement global"),
                     dbc.CardBody(
                         [

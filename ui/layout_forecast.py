@@ -32,6 +32,7 @@ def layout_forecast():
             dcc.Store(id="forecast-fertilization-store", data=[]),
             dcc.Store(id="forecast-irrigation-store", data=[]),
             dcc.Store(id="forecast-results-store", data={}),
+            dcc.Download(id="forecast-export-download"),
 
             html.H3("SIMAGRI - Analyse previsionnelle des cultures", className="text-center my-4"),
             dbc.Row(
@@ -657,6 +658,32 @@ def layout_forecast():
                                                 ),
                                             ]
                                         )
+                                    ),
+                                ],
+                            ),
+                            dbc.Row(
+                                className="g-2 mt-2",
+                                children=[
+                                    dbc.Col(
+                                        dbc.Button(
+                                            "Exporter simulation (CSV)",
+                                            id="forecast-export-simulation",
+                                            color="secondary",
+                                            className="w-100",
+                                        ),
+                                        md=6,
+                                    ),
+                                    dbc.Col(
+                                        dcc.Upload(
+                                            id="forecast-import-simulation",
+                                            children=dbc.Button(
+                                                "Importer simulation",
+                                                color="secondary",
+                                                className="w-100",
+                                            ),
+                                            multiple=False,
+                                        ),
+                                        md=6,
                                     ),
                                 ],
                             ),

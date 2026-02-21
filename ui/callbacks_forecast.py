@@ -9,6 +9,8 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import json
 import re
+import base64
+import io
 from pathlib import Path
 from datetime import datetime
 import copy
@@ -447,6 +449,81 @@ def _filter_forecast_messages(messages):
     return keep
 
 
+def _export_forecast_rows(scenarios, sim_results):
+    rows = []
+    for s in (scenarios or []):
+        sid = s.get("id_scenario")
+        m = (sim_results or {}).get(sid, {}) or {}
+        totals = _scenario_ui_agro_totals(s)
+        rows.append(
+            {
+                "id_scenario": sid,
+                "departement": s.get("location", {}).get("department"),
+                "culture": s.get("crop", {}).get("code"),
+                "cycle": s.get("crop", {}).get("cycle"),
+                "date_semis": s.get("crop", {}).get("planting_date"),
+                "fertilisation": bool(s.get("fertilization", {}).get("enabled")),
+                "irrigation": bool(s.get("irrigation", {}).get("enabled")),
+                "methode_irrigation": s.get("irrigation", {}).get("method"),
+                "N_total_kg_ha": f"{totals['n_tot']:.1f}",
+                "P_total_kg_ha": f"{totals['p_tot']:.1f}",
+                "K_total_kg_ha": f"{totals['k_tot']:.1f}",
+                "irrigation_totale_mm": f"{totals['irr_mm']:.1f}",
+                "status": m.get("status", ""),
+                "HARWT": m.get("HARWT", ""),
+                "HARWT_P20": m.get("HARWT_P20", ""),
+                "HARWT_P80": m.get("HARWT_P80", ""),
+                "TOPWT": m.get("TOPWT", ""),
+                "RAIN": m.get("RAIN", ""),
+                "TIRR": m.get("TIRR", ""),
+                "CET": m.get("CET", ""),
+                "MAT": m.get("MAT", ""),
+                "scenario_json": json.dumps(s, ensure_ascii=False),
+                "result_json": json.dumps(m, ensure_ascii=False),
+            }
+        )
+    return rows
+
+
+def _read_uploaded_table(contents, filename):
+    if not contents:
+        return []
+    try:
+        _, b64 = contents.split(",", 1)
+        raw = base64.b64decode(b64)
+    except Exception:
+        return []
+
+    name = str(filename or "").lower()
+    try:
+        if name.endswith(".xlsx") or name.endswith(".xls"):
+            df = pd.read_excel(io.BytesIO(raw))
+        else:
+            text = raw.decode("utf-8-sig", errors="ignore")
+            df = pd.read_csv(io.StringIO(text))
+        return df.to_dict(orient="records")
+    except Exception:
+        return []
+
+
+def _import_forecast_scenarios(contents, filename):
+    rows = _read_uploaded_table(contents, filename)
+    out = []
+    for r in rows:
+        sj = r.get("scenario_json")
+        if not sj:
+            continue
+        try:
+            s = json.loads(sj)
+            if isinstance(s, dict):
+                out.append(s)
+        except Exception:
+            continue
+    for i, s in enumerate(out, start=1):
+        s["id_scenario"] = f"F{i:03d}"
+    return out
+
+
 def _build_forecast_results_view(scenarios, sim_results, messages):
     rows = []
     labels = []
@@ -621,6 +698,21 @@ def register_forecast_callbacks(app):
             return trig or None
         except Exception:
             return None
+
+    @app.callback(
+        Output("forecast-export-download", "data"),
+        Input("forecast-export-simulation", "n_clicks"),
+        State("forecast-scenario-store", "data"),
+        State("forecast-results-store", "data"),
+        prevent_initial_call=True,
+    )
+    def export_forecast_simulation(n_clicks, scenarios, sim_results):
+        if not n_clicks or not scenarios:
+            return None
+        rows = _export_forecast_rows(scenarios or [], sim_results or {})
+        df = pd.DataFrame(rows)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return dcc.send_data_frame(df.to_csv, f"simagri_forecast_{ts}.csv", index=False, encoding="utf-8-sig")
 
     @app.callback(
         [
@@ -999,9 +1091,14 @@ def register_forecast_callbacks(app):
 
     @app.callback(
         Output("forecast-scenario-store", "data"),
-        [Input("forecast-add-scenario", "n_clicks"), Input("forecast-reset-scenarios", "n_clicks")],
+        [
+            Input("forecast-add-scenario", "n_clicks"),
+            Input("forecast-reset-scenarios", "n_clicks"),
+            Input("forecast-import-simulation", "contents"),
+        ],
         [
             State("forecast-scenario-store", "data"),
+            State("forecast-import-simulation", "filename"),
             State("forecast-department", "value"),
             State("forecast-crop", "value"),
             State("forecast-cycle", "value"),
@@ -1021,12 +1118,16 @@ def register_forecast_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def add_scenario(n_add, n_reset, store, dept, crop, cycle, simulation_mode, planting_date, target_year,
+    def add_scenario(n_add, n_reset, import_contents, store, import_filename, dept, crop, cycle, simulation_mode, planting_date, target_year,
                      downscaling_method, realizations, fert, fert_plan, irrig, irrig_plan, fert_cost, irrig_cost, total_cost, socio_clicks):
         store = store or []
         trig = get_triggered_id()
         if trig == "forecast-reset-scenarios":
             return []
+        if trig == "forecast-import-simulation":
+            imported = _import_forecast_scenarios(import_contents, import_filename)
+            max_scenarios = _parse_max_scenarios(simulation_mode)
+            return (imported or [])[:max_scenarios]
         if trig != "forecast-add-scenario":
             return store
 
@@ -1123,7 +1224,11 @@ def register_forecast_callbacks(app):
 
     @app.callback(
         [Output("forecast-comparison-output", "children"), Output("forecast-results-store", "data")],
-        [Input("forecast-run-simulation", "n_clicks"), Input("forecast-reset-scenarios", "n_clicks")],
+        [
+            Input("forecast-run-simulation", "n_clicks"),
+            Input("forecast-reset-scenarios", "n_clicks"),
+            Input("forecast-import-simulation", "contents"),
+        ],
         [
             State("forecast-scenario-store", "data"),
             State("forecast-results-store", "data"),
@@ -1131,18 +1236,22 @@ def register_forecast_callbacks(app):
         ],
         prevent_initial_call=True,
     )
-    def run_forecast(n_run, n_reset, scenarios, results_store, simulation_mode):
-        if (n_reset or 0) > 0 and (n_reset or 0) >= (n_run or 0):
+    def run_forecast(n_run, n_reset, import_contents, scenarios, results_store, simulation_mode):
+        trig = get_triggered_id()
+        if trig == "forecast-reset-scenarios":
             return "Ajoutez un scenario previsionnel puis cliquez sur Simuler.", {}
+        if trig == "forecast-import-simulation":
+            return "Simulation importee. Cliquez sur Simuler pour la relancer.", {}
+        if trig != "forecast-run-simulation":
+            return "Cliquez sur Simuler.", (results_store or {})
         scenarios = scenarios or []
         if not scenarios:
             return "Aucun scenario previsionnel a simuler.", (results_store or {})
         max_scenarios = _parse_max_scenarios(simulation_mode)
         scenarios = scenarios[:max_scenarios]
 
-        trig = get_triggered_id()
         # Always start forecast runs from a clean results set.
-        out = {} if trig == "forecast-run-simulation" else dict(results_store or {})
+        out = {}
         msgs = []
         for i, scenario in enumerate(scenarios, start=1):
             sid = scenario.get("id_scenario")

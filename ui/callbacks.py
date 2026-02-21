@@ -13,12 +13,15 @@ from dash.dependencies import Input, Output, State, ALL
 import dash_bootstrap_components as dbc
 import json
 import csv
+import base64
+import io
 from pathlib import Path
 import re
 from datetime import datetime, timedelta
 import unicodedata
 import plotly.graph_objects as go
 import copy
+import pandas as pd
 
 # --- Imports domaine métier
 from domain.geography import get_department_gps, get_department_soil, get_department_options
@@ -206,6 +209,101 @@ def _parse_max_scenarios(simulation_mode):
     except Exception:
         return 1
     return max(1, min(n, 3))
+
+
+def _hist_ui_agro_totals(scenario):
+    fert = (scenario or {}).get("fertilization", {}) or {}
+    irrig = (scenario or {}).get("irrigation", {}) or {}
+    n_tot = p_tot = k_tot = 0.0
+    for app in (fert.get("applications") or []):
+        try:
+            n_tot += float(app.get("N") or 0)
+            p_tot += float(app.get("P") or 0)
+            k_tot += float(app.get("K") or 0)
+        except Exception:
+            continue
+    irr_mm = 0.0
+    for ev in (irrig.get("schedule") or []):
+        try:
+            irr_mm += float(ev.get("mm") or 0)
+        except Exception:
+            continue
+    return {"n_tot": n_tot, "p_tot": p_tot, "k_tot": k_tot, "irr_mm": irr_mm}
+
+
+def _export_hist_rows(scenarios, sim_results):
+    rows = []
+    for s in (scenarios or []):
+        sid = s.get("id_scenario")
+        m = (sim_results or {}).get(sid, {}) or {}
+        totals = _hist_ui_agro_totals(s)
+        rows.append(
+            {
+                "id_scenario": sid,
+                "departement": s.get("location", {}).get("department"),
+                "culture": s.get("crop", {}).get("code"),
+                "cycle": s.get("crop", {}).get("cycle"),
+                "date_semis": s.get("crop", {}).get("planting_date"),
+                "annee_debut": s.get("climate", {}).get("hist_start_year"),
+                "annee_fin": s.get("climate", {}).get("hist_end_year"),
+                "fertilisation": bool(s.get("fertilization", {}).get("enabled")),
+                "irrigation": bool(s.get("irrigation", {}).get("enabled")),
+                "methode_irrigation": s.get("irrigation", {}).get("method"),
+                "N_total_kg_ha": f"{totals['n_tot']:.1f}",
+                "P_total_kg_ha": f"{totals['p_tot']:.1f}",
+                "K_total_kg_ha": f"{totals['k_tot']:.1f}",
+                "irrigation_totale_mm": f"{totals['irr_mm']:.1f}",
+                "status": m.get("status", ""),
+                "HARWT": m.get("HARWT", ""),
+                "TOPWT": m.get("TOPWT", ""),
+                "RAIN": m.get("RAIN", ""),
+                "TIRR": m.get("TIRR", ""),
+                "CET": m.get("CET", ""),
+                "MAT": m.get("MAT", ""),
+                "scenario_json": json.dumps(s, ensure_ascii=False),
+                "result_json": json.dumps(m, ensure_ascii=False),
+            }
+        )
+    return rows
+
+
+def _read_uploaded_table(contents, filename):
+    if not contents:
+        return []
+    try:
+        _, b64 = contents.split(",", 1)
+        raw = base64.b64decode(b64)
+    except Exception:
+        return []
+
+    name = str(filename or "").lower()
+    try:
+        if name.endswith(".xlsx") or name.endswith(".xls"):
+            df = pd.read_excel(io.BytesIO(raw))
+        else:
+            text = raw.decode("utf-8-sig", errors="ignore")
+            df = pd.read_csv(io.StringIO(text))
+        return df.to_dict(orient="records")
+    except Exception:
+        return []
+
+
+def _import_hist_scenarios(contents, filename):
+    rows = _read_uploaded_table(contents, filename)
+    out = []
+    for r in rows:
+        sj = r.get("scenario_json")
+        if not sj:
+            continue
+        try:
+            s = json.loads(sj)
+            if isinstance(s, dict):
+                out.append(s)
+        except Exception:
+            continue
+    for i, s in enumerate(out, start=1):
+        s["id_scenario"] = f"S{i:03d}"
+    return out
 
 
 def parse_summary_metrics(summary_path):
@@ -1222,12 +1320,29 @@ def register_callbacks(app):
         except Exception:
             return 1991, 2022, y0, 1991, 2022, y1
 
+    @app.callback(
+        Output("hist-export-download", "data"),
+        Input("hist-export-simulation", "n_clicks"),
+        State("scenario-store", "data"),
+        State("simulation-results-store", "data"),
+        prevent_initial_call=True,
+    )
+    def export_hist_simulation(n_clicks, scenarios, sim_results):
+        if not n_clicks or not scenarios:
+            return None
+        rows = _export_hist_rows(scenarios or [], sim_results or {})
+        df = pd.DataFrame(rows)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        return dcc.send_data_frame(df.to_csv, f"simagri_historique_{ts}.csv", index=False, encoding="utf-8-sig")
+
 
     @app.callback(
         Output("scenario-store", "data"),
         Input("add_scenario", "n_clicks"),
         Input("reset_scenarios", "n_clicks"),
+        Input("hist-import-simulation", "contents"),
         State("scenario-store", "data"),
+        State("hist-import-simulation", "filename"),
         State("department", "value"),
         State("crop", "value"),
         State("cycle", "value"),
@@ -1249,7 +1364,9 @@ def register_callbacks(app):
     def add_scenario(
         n_clicks,
         reset_clicks,
+        import_contents,
         stored_scenarios,
+        import_filename,
         department,
         crop,
         cycle,
@@ -1274,6 +1391,10 @@ def register_callbacks(app):
         trig = get_triggered_id()
         if trig == "reset_scenarios":
             return []
+        if trig == "hist-import-simulation":
+            imported = _import_hist_scenarios(import_contents, import_filename)
+            max_scenarios = _parse_max_scenarios(simulation_mode)
+            return (imported or [])[:max_scenarios]
 
         # 🔒 Sécurité
         if stored_scenarios is None:
@@ -1366,12 +1487,13 @@ def register_callbacks(app):
         ],
         Input("run_simulation", "n_clicks"),
         Input("reset_scenarios", "n_clicks"),
+        Input("hist-import-simulation", "contents"),
         State("scenario-store", "data"),
         State("simulation-results-store", "data"),
         State("simulation_mode", "value"),
         prevent_initial_call=True,
     )
-    def run_dssat_from_ui(n_clicks, reset_clicks, scenarios, sim_results, simulation_mode):
+    def run_dssat_from_ui(n_clicks, reset_clicks, import_contents, scenarios, sim_results, simulation_mode):
         """
         Lance la simulation DSSAT historique sur l'intervalle d'annees choisi.
         """
@@ -1379,6 +1501,8 @@ def register_callbacks(app):
         trig = get_triggered_id()
         if trig == "reset_scenarios":
             return "Ajoutez un scenario puis cliquez sur Simuler.", {}
+        if trig == "hist-import-simulation":
+            return "Simulation importee. Cliquez sur Simuler pour la relancer.", {}
         if not n_clicks:
             return "Cliquez sur le bouton Simuler", (sim_results or {})
 
