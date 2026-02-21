@@ -704,15 +704,16 @@ def register_forecast_callbacks(app):
     )
     def update_forecast_map_and_soil(dept_name):
         if not dept_name:
-            return [14.15, -16.07], 6, [14.15, -16.07], None, [], None, "Departement"
+            return [14.15, -16.07], 4, [14.15, -16.07], None, [], None, "Departement | Sol: -"
         lat, lon = get_department_gps(dept_name)
         soil = get_department_soil(dept_name) or "-"
         geojson = None
         try:
             with open(GEOJSON_PATH, encoding="utf-8") as f:
                 geo = json.load(f)
+            features = geo.get("features", [])
             target = str(dept_name).lower().replace("-", " ").strip()
-            for ft in geo.get("features", []):
+            for ft in features:
                 props = ft.get("properties", {})
                 name = (
                     props.get("NAME")
@@ -726,7 +727,15 @@ def register_forecast_callbacks(app):
                     break
         except Exception:
             geojson = None
-        return [lat, lon], 10, [lat, lon], geojson, [{"label": soil, "value": soil}], soil, f"{dept_name} | Sol: {soil}"
+        return (
+            [lat, lon],
+            4,
+            [lat, lon],
+            geojson,
+            [{"label": soil, "value": soil}],
+            soil,
+            f"{dept_name} | Sol: {soil}",
+        )
 
     @app.callback(Output("forecast-fertilization-block", "style"), Input("forecast-fertilization", "value"))
     def toggle_fert(use):

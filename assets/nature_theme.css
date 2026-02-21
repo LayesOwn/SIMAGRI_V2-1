@@ -162,6 +162,41 @@ body {
   font-size: clamp(2.2rem, 4vw, 3.4rem);
 }
 
+.partner-logo {
+  height: 58px;
+  width: auto;
+  object-fit: contain;
+  padding: 6px 10px;
+  border: 1px solid #c9d9c4;
+  border-radius: 12px;
+  background: #fffef8;
+  box-shadow: 0 8px 16px rgba(35, 66, 47, 0.12);
+}
+
+.partner-fallback {
+  min-width: 108px;
+  text-align: center;
+  padding: 10px 14px;
+  border: 1px solid #c9d9c4;
+  border-radius: 12px;
+  background: #fffef8;
+  color: #1c432f;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+}
+
+.simagri-logo-fallback {
+  display: inline-block;
+  padding: 16px 26px;
+  border: 1px solid #b9cfb8;
+  border-radius: 14px;
+  background: linear-gradient(140deg, #f1f8ee 0%, #e4f0df 100%);
+  color: #1f4b35;
+  font-family: "Fraunces", "Book Antiqua", serif;
+  font-size: 2rem;
+  font-weight: 700;
+}
+
 .simagri-home .btn {
   min-height: 96px;
 }
@@ -183,4 +218,3 @@ body {
     padding-right: 0.85rem;
   }
 }
-

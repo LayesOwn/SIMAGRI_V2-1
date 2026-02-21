@@ -695,6 +695,7 @@ def register_callbacks(app):
             Output("dept-marker", "position"),
             Output("dept-geojson", "data"),
             Output("soil_type", "value"),
+            Output("dept-tooltip", "children"),
         ],
         Input("department", "value"),
     )
@@ -706,7 +707,7 @@ def register_callbacks(app):
 
         # 🔒 Sécurité
         if not dept_name:
-            return [14.15, -16.07], 7, [14.15, -16.07], None, None
+            return [14.15, -16.07], 4, [14.15, -16.07], None, None, "Departement | Sol: -"
 
         # 📍 GPS
         lat, lon = get_department_gps(dept_name)
@@ -746,10 +747,11 @@ def register_callbacks(app):
 
         return (
             [lat, lon],   # center
-            12,            # zoom rapproché
+            4,            # zoom
             [lat, lon],   # marker
             geojson,      # contour département
-            soil          # type de sol
+            soil,         # type de sol
+            f"{dept_name} | Sol: {soil}",
         )
 
     # ======================================================

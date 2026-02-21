@@ -526,11 +526,12 @@ def layout_historic():
                 dl.Map(
                     id="map",
                     center=[14.15, -16.07],
-                    zoom=7,
+                    zoom=4,
                     style={"width": "100%", "height": "500px"},
                     children=[
                         dl.TileLayer(
-                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                            url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
+                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
                         ),
 
                         # 🔹 Contour département (chargé dynamiquement)
@@ -552,13 +553,33 @@ def layout_historic():
                         dl.Marker(
                             id="dept-marker",
                             position=[14.15, -16.07],
-                            children=dl.Tooltip(id="dept-tooltip")
+                            children=dl.Tooltip(id="dept-tooltip", permanent=True, direction="top")
                         ),
                     ],
                 )
 
         )
     ]),
+
+    dbc.Card(
+        className="mt-3",
+        children=[
+            dbc.CardHeader("Carte statique du Senegal"),
+            dbc.CardBody(
+                html.Img(
+                    src="/assets/Carte_Statique.webp",
+                    style={
+                        "width": "100%",
+                        "height": "380px",
+                        "objectFit": "contain",
+                        "border": "1px solid #c7d8c2",
+                        "borderRadius": "12px",
+                        "backgroundColor": "#f6f8f4",
+                    },
+                )
+            ),
+        ],
+    ),
 
 ], md=6),
 

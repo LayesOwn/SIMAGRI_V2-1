@@ -603,10 +603,17 @@ def layout_forecast():
                                         dl.Map(
                                             id="forecast-map",
                                             center=[14.15, -16.07],
-                                            zoom=6,
+                                            zoom=4,
+                                            minZoom=4,
+                                            maxZoom=10,
+                                            maxBounds=[[12.0, -18.8], [17.4, -10.2]],
+                                            maxBoundsViscosity=1.0,
                                             style={"width": "100%", "height": "500px"},
                                             children=[
-                                                dl.TileLayer(url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"),
+                                                dl.TileLayer(
+                                                    url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
+                                                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                                                ),
                                                 dl.GeoJSON(
                                                     id="forecast-dept-geojson",
                                                     options={
@@ -623,13 +630,36 @@ def layout_forecast():
                                                 dl.Marker(
                                                     id="forecast-dept-marker",
                                                     position=[14.15, -16.07],
-                                                    children=dl.Tooltip(id="forecast-dept-tooltip"),
+                                                    children=dl.Tooltip(id="forecast-dept-tooltip", permanent=True, direction="top"),
                                                 ),
                                             ],
                                         )
                                     ),
                                 ]
-                            )
+                            ),
+                            dbc.Card(
+                                className="mt-3",
+                                children=[
+                                    dbc.CardHeader("Carte statique du Senegal"),
+                                    dbc.CardBody(
+                                        html.Div(
+                                            [
+                                                html.Img(
+                                                    src="/assets/Carte_Statique.webp",
+                                                    style={
+                                                        "width": "100%",
+                                                        "height": "380px",
+                                                        "objectFit": "contain",
+                                                        "border": "1px solid #c7d8c2",
+                                                        "borderRadius": "12px",
+                                                        "backgroundColor": "#f6f8f4",
+                                                    },
+                                                ),
+                                            ]
+                                        )
+                                    ),
+                                ],
+                            ),
                         ],
                     ),
                 ],
