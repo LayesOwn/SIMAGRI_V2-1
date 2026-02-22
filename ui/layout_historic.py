@@ -460,6 +460,13 @@ def layout_historic():
 
                         html.Hr(),
 
+                        dbc.Alert(
+                            id="hist-flash",
+                            is_open=False,
+                            duration=6000,
+                            className="mb-2",
+                        ),
+
                         # --- Type de scenario ---
                         dbc.Row([
                             dbc.Col([

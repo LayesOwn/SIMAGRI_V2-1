@@ -3,6 +3,7 @@ from pathlib import Path
 import calendar
 import random
 import unicodedata
+from functools import lru_cache
 
 import pandas as pd
 
@@ -91,7 +92,13 @@ def _load_enacts_reference_dataframe(department):
     p = _resolve_enacts_file_for_department(department)
     if p is None or not p.exists():
         raise FileNotFoundError(f"Fichier ENACTS introuvable pour '{department}'")
+    mtime_ns = p.stat().st_mtime_ns
+    return _load_enacts_reference_dataframe_cached(str(p), mtime_ns).copy()
 
+
+@lru_cache(maxsize=128)
+def _load_enacts_reference_dataframe_cached(path_str, _mtime_ns):
+    p = Path(path_str)
     df = pd.read_csv(p)
     # ENACTS attendu: time,rain,tmax,tmin,...
     if "time" not in df.columns:
@@ -118,11 +125,18 @@ def load_forecast_dataframe(department):
         if out.empty:
             y0, y1 = ENACTS_REFERENCE_YEARS
             raise ValueError(f"ENACTS reference vide pour '{department}' sur {y0}-{y1}")
-        return out
+        return out.copy()
 
     path = forecast_file_for_department(department)
     if path is None or not path.exists():
         raise FileNotFoundError(f"Fichier forecast introuvable pour '{department}'")
+    mtime_ns = path.stat().st_mtime_ns
+    return _load_forecast_dataframe_cached(str(path), mtime_ns).copy()
+
+
+@lru_cache(maxsize=128)
+def _load_forecast_dataframe_cached(path_str, _mtime_ns):
+    path = Path(path_str)
     df = pd.read_csv(path)
     for c in FORECAST_REQUIRED_COLS:
         if c not in df.columns:

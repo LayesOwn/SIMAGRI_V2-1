@@ -85,7 +85,7 @@ def layout_home():
                             ),
 
                             html.H5(
-                                "Outil d’aide à la décision agricole et climatique",
+                                "Outil d’aide à la décision agricole",
                                 className="text-muted mb-5"
                             ),
 

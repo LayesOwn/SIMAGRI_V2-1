@@ -887,6 +887,70 @@ def register_forecast_callbacks(app):
 
     @app.callback(
         [
+            Output("forecast-flash", "children"),
+            Output("forecast-flash", "color"),
+            Output("forecast-flash", "is_open"),
+        ],
+        [
+            Input("forecast-add-scenario", "n_clicks"),
+            Input("forecast-run-simulation", "n_clicks"),
+            Input("forecast-reset-scenarios", "n_clicks"),
+            Input("forecast-import-simulation", "contents"),
+            Input("forecast-simulation-mode", "value"),
+        ],
+        [
+            State("forecast-scenario-store", "data"),
+            State("forecast-import-simulation", "filename"),
+        ],
+        prevent_initial_call=True,
+    )
+    def forecast_flash_alert(_n_add, _n_run, _n_reset, import_contents, simulation_mode, scenarios, import_filename):
+        trig = get_triggered_id()
+        scenarios = scenarios or []
+        max_scenarios = _parse_max_scenarios(simulation_mode)
+
+        if trig == "forecast-add-scenario" and len(scenarios) >= max_scenarios:
+            msg = (
+                f"Mode actuel: {max_scenarios} scenario(s). "
+                "Impossible d'ajouter plus de scenarios. Changez le mode ou reinitialisez."
+            )
+            return msg, "warning", True
+
+        if trig == "forecast-run-simulation" and not scenarios:
+            return "Aucun scenario previsionnel a simuler. Ajoutez d'abord un scenario.", "warning", True
+
+        if trig == "forecast-reset-scenarios":
+            return "Interface prevision reinitialisee. Les scenarios ont ete vides.", "info", True
+
+        if trig == "forecast-import-simulation":
+            imported = _import_forecast_scenarios(import_contents, import_filename)
+            if not imported:
+                return (
+                    "Import impossible: fichier vide/invalide ou format non supporte (CSV/XLS/XLSX).",
+                    "danger",
+                    True,
+                )
+            if len(imported) > max_scenarios:
+                return (
+                    f"{len(imported)} scenario(s) trouves, mais mode actuel limite a {max_scenarios}. "
+                    f"Seuls les {max_scenarios} premiers seront charges.",
+                    "warning",
+                    True,
+                )
+            return f"{len(imported)} scenario(s) importes avec succes.", "success", True
+
+        if trig == "forecast-simulation-mode" and len(scenarios) > max_scenarios:
+            return (
+                f"Vous avez {len(scenarios)} scenario(s) en memoire, mais le mode actuel autorise {max_scenarios}. "
+                "Reinitialisez ou augmentez le mode.",
+                "warning",
+                True,
+            )
+
+        return "", "secondary", False
+
+    @app.callback(
+        [
             Output("forecast-seed-qty", "value"),
             Output("forecast-seed-price", "value"),
         ],
@@ -954,10 +1018,14 @@ def register_forecast_callbacks(app):
     def manage_fert(use, add_clicks, types, qtys, store):
         if not use:
             return [], 0
-        store = store or [{"type": "NPK", "qty": 150}]
-        triggered = (add_clicks or 0) > len(store) - 1
-        if triggered:
+        store = [dict(r) for r in (store or [])]
+        if not store:
+            store = [{"type": "NPK", "qty": 150}]
+
+        # Ajouter une ligne uniquement sur clic explicite du bouton.
+        if get_triggered_id() == "forecast-add-fertilization":
             store.append(store[-1].copy())
+
         total = 0
         for i, r in enumerate(store):
             if i < len(types):

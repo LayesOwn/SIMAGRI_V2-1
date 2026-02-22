@@ -81,14 +81,36 @@ print(f"   Fichiers .WTH : {len(list((BASE_DIR / 'dssat').glob('*.WTH')))}")
 # IMPORTANT:
 # Ne pas générer tous les WTH au démarrage: cela peut bloquer le boot de Dash.
 # Les fichiers météo sont générés à la demande par scénario (ensure_weather_for_scenario).
-try:
-    invalid_depts = []
-    report_rows = []
-    for opt in get_department_options():
-        dept = opt.get("value")
-        try:
-            _df = load_enacts(dept)
-            if _df is None or _df.empty:
+def _run_enacts_boot_audit():
+    """
+    Audit ENACTS optionnel (desactive par defaut pour accelerer le demarrage).
+    Activez via: SIMAGRI_ENACTS_AUDIT_ON_BOOT=true
+    """
+    try:
+        invalid_depts = []
+        report_rows = []
+        for opt in get_department_options():
+            dept = opt.get("value")
+            try:
+                _df = load_enacts(dept)
+                if _df is None or _df.empty:
+                    invalid_depts.append(dept)
+                    report_rows.append({
+                        "departement": dept,
+                        "statut_enacts": "INVALIDE",
+                        "date_min": "",
+                        "date_max": "",
+                        "nb_lignes_valides": 0,
+                    })
+                else:
+                    report_rows.append({
+                        "departement": dept,
+                        "statut_enacts": "OK",
+                        "date_min": str(_df["date"].min().date()),
+                        "date_max": str(_df["date"].max().date()),
+                        "nb_lignes_valides": int(len(_df)),
+                    })
+            except Exception:
                 invalid_depts.append(dept)
                 report_rows.append({
                     "departement": dept,
@@ -97,45 +119,35 @@ try:
                     "date_max": "",
                     "nb_lignes_valides": 0,
                 })
-            else:
-                report_rows.append({
-                    "departement": dept,
-                    "statut_enacts": "OK",
-                    "date_min": str(_df["date"].min().date()),
-                    "date_max": str(_df["date"].max().date()),
-                    "nb_lignes_valides": int(len(_df)),
-                })
-        except Exception:
-            invalid_depts.append(dept)
-            report_rows.append({
-                "departement": dept,
-                "statut_enacts": "INVALIDE",
-                "date_min": "",
-                "date_max": "",
-                "nb_lignes_valides": 0,
-            })
 
-    report_path = BASE_DIR / "data" / "enacts_validation_report.csv"
-    report_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(report_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(
-            f,
-            fieldnames=[
-                "departement",
-                "statut_enacts",
-                "date_min",
-                "date_max",
-                "nb_lignes_valides",
-            ],
-        )
-        w.writeheader()
-        w.writerows(report_rows)
-    print(f"   📄 Rapport ENACTS: {report_path}")
+        report_path = BASE_DIR / "data" / "enacts_validation_report.csv"
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(report_path, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(
+                f,
+                fieldnames=[
+                    "departement",
+                    "statut_enacts",
+                    "date_min",
+                    "date_max",
+                    "nb_lignes_valides",
+                ],
+            )
+            w.writeheader()
+            w.writerows(report_rows)
+        print(f"   Rapport ENACTS: {report_path}")
 
-    if invalid_depts:
-        print(f"   ⚠️ Départements sans données ENACTS valides ({len(invalid_depts)}): {', '.join(invalid_depts)}")
-except Exception as e:
-    print(f"   ⚠️ Audit ENACTS impossible: {e}")
+        if invalid_depts:
+            print(
+                "   Departements sans donnees ENACTS valides "
+                f"({len(invalid_depts)}): {', '.join(invalid_depts)}"
+            )
+    except Exception as e:
+        print(f"   Audit ENACTS impossible: {e}")
+
+
+if os.getenv("SIMAGRI_ENACTS_AUDIT_ON_BOOT", "false").lower() == "true":
+    _run_enacts_boot_audit()
 
 GEOJSON_PATH = BASE_DIR / "data" / "geojson" / "senegal_departments.json"
 
@@ -916,6 +928,70 @@ def register_callbacks(app):
             [],            # post_harvest
             ["Semis"],     # labor_type
         )
+
+    @app.callback(
+        [
+            Output("hist-flash", "children"),
+            Output("hist-flash", "color"),
+            Output("hist-flash", "is_open"),
+        ],
+        [
+            Input("add_scenario", "n_clicks"),
+            Input("run_simulation", "n_clicks"),
+            Input("reset_scenarios", "n_clicks"),
+            Input("hist-import-simulation", "contents"),
+            Input("simulation_mode", "value"),
+        ],
+        [
+            State("scenario-store", "data"),
+            State("hist-import-simulation", "filename"),
+        ],
+        prevent_initial_call=True,
+    )
+    def historical_flash_alert(_n_add, _n_run, _n_reset, import_contents, simulation_mode, scenarios, import_filename):
+        trig = get_triggered_id()
+        scenarios = scenarios or []
+        max_scenarios = _parse_max_scenarios(simulation_mode)
+
+        if trig == "add_scenario" and len(scenarios) >= max_scenarios:
+            msg = (
+                f"Mode actuel: {max_scenarios} scenario(s). "
+                f"Vous avez deja atteint la limite. Changez 'Type de scenario' ou reinitialisez."
+            )
+            return msg, "warning", True
+
+        if trig == "run_simulation" and not scenarios:
+            return "Aucun scenario a simuler. Ajoutez d'abord un scenario.", "warning", True
+
+        if trig == "reset_scenarios":
+            return "Interface reinitialisee. Les scenarios ont ete vides.", "info", True
+
+        if trig == "hist-import-simulation":
+            imported = _import_hist_scenarios(import_contents, import_filename)
+            if not imported:
+                return (
+                    "Import impossible: fichier vide/invalide ou format non supporte (CSV/XLS/XLSX).",
+                    "danger",
+                    True,
+                )
+            if len(imported) > max_scenarios:
+                return (
+                    f"{len(imported)} scenario(s) trouves, mais mode actuel limite a {max_scenarios}. "
+                    f"Seuls les {max_scenarios} premiers seront charges.",
+                    "warning",
+                    True,
+                )
+            return f"{len(imported)} scenario(s) importes avec succes.", "success", True
+
+        if trig == "simulation_mode" and len(scenarios) > max_scenarios:
+            return (
+                f"Vous avez {len(scenarios)} scenario(s) en memoire, mais le mode actuel autorise {max_scenarios}. "
+                "Reinitialisez ou augmentez le mode pour en ajouter/executer davantage.",
+                "warning",
+                True,
+            )
+
+        return "", "secondary", False
     # ======================================================
     # 💧 IRRIGATION
     # ======================================================

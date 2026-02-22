@@ -2,6 +2,7 @@
 import pandas as pd
 from pathlib import Path
 import re
+from functools import lru_cache
 
 DATA_DIR = Path(__file__).resolve().parents[2] / "data" / "enacts"
 
@@ -45,13 +46,13 @@ def _resolve_enacts_file(code):
 
 def load_enacts(department):
     """
-    Charge les données ENACTS d’un département
+    Charge les donnees ENACTS d'un departement
     """
 
     code = get_department_code(department)
 
     if code is None:
-        raise ValueError(f"Département inconnu : {department}")
+        raise ValueError(f"Departement inconnu : {department}")
 
     filepath = _resolve_enacts_file(code)
     if not filepath:
@@ -59,9 +60,16 @@ def load_enacts(department):
             f"Fichier ENACTS introuvable pour '{department}' (code: {code})"
         )
 
+    mtime_ns = filepath.stat().st_mtime_ns
+    return _load_enacts_cached(str(filepath), mtime_ns).copy()
+
+
+@lru_cache(maxsize=128)
+def _load_enacts_cached(path_str, _mtime_ns):
+    filepath = Path(path_str)
     df = pd.read_csv(filepath)
 
-    # 🔑 standardisation ENACTS → SIMAGRI
+    # standardisation ENACTS -> SIMAGRI
     df = df.rename(columns={
         "time": "date",
         "rain": "prcp"
@@ -75,7 +83,6 @@ def load_enacts(department):
     df = df.dropna(subset=["date", "prcp", "tmax", "tmin"])
 
     return df
-
 
 # ==========================================================
 # Utilitaires climat

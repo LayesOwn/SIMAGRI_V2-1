@@ -1,0 +1,74 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Tests / cache
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+.cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Env / logs
+.env
+.env.local
+.env.*.local
+*.log
+logs/
+*.pid
+
+# Temp
+*.bak
+*.tmp
+
+# Node (si present)
+node_modules/
+npm-debug.log
+yarn-error.log

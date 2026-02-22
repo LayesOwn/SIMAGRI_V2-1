@@ -1,0 +1,14 @@
+services:
+  simagri:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8050:8050"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLASK_ENV=production
+      - SIMAGRI_ENV=docker
+      - SIMAGRI_HOST=0.0.0.0
+    command: ["python3", "/app/app.py"]
+    restart: unless-stopped

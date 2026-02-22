@@ -261,6 +261,13 @@ def layout_forecast():
 
                                             html.Hr(),
 
+                                            dbc.Alert(
+                                                id="forecast-flash",
+                                                is_open=False,
+                                                duration=6000,
+                                                className="mb-2",
+                                            ),
+
                                             dbc.Row(
                                                 [
                                                     dbc.Col(
