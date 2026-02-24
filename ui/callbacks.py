@@ -817,7 +817,7 @@ def register_callbacks(app):
 
         # 🔒 Sécurité
         if not dept_name:
-            return [14.15, -16.07], 4, [14.15, -16.07], None, None, "Departement | Sol: -"
+            return [14.15, -16.07], 4, [14.15, -16.07], None, None, "Departement"
 
         # 📍 GPS
         lat, lon = get_department_gps(dept_name)
@@ -861,7 +861,7 @@ def register_callbacks(app):
             [lat, lon],   # marker
             geojson,      # contour département
             soil,         # type de sol
-            f"{dept_name} | Sol: {soil}",
+            f"{dept_name}",
         )
 
     # ======================================================

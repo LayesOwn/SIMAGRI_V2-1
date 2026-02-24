@@ -796,7 +796,7 @@ def register_forecast_callbacks(app):
     )
     def update_forecast_map_and_soil(dept_name):
         if not dept_name:
-            return [14.15, -16.07], 4, [14.15, -16.07], None, [], None, "Departement | Sol: -"
+            return [14.15, -16.07], 4, [14.15, -16.07], None, [], None, "Departement"
         lat, lon = get_department_gps(dept_name)
         soil = get_department_soil(dept_name) or "-"
         geojson = None
@@ -826,7 +826,7 @@ def register_forecast_callbacks(app):
             geojson,
             [{"label": soil, "value": soil}],
             soil,
-            f"{dept_name} | Sol: {soil}",
+            f"{dept_name}",
         )
 
     @app.callback(Output("forecast-fertilization-block", "style"), Input("forecast-fertilization", "value"))

@@ -572,10 +572,10 @@ def layout_historic():
     dbc.Card(
         className="mt-3",
         children=[
-            dbc.CardHeader("Carte statique du Senegal"),
+            dbc.CardHeader("Carte ANACIM du Senegal"),
             dbc.CardBody(
                 html.Img(
-                    src="/assets/Carte_Statique.webp",
+                    src="/assets/Carte_de_ANACIM.jpeg",
                     style={
                         "width": "100%",
                         "height": "380px",
