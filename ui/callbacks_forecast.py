@@ -1,3 +1,4 @@
+import dash
 try:
     from dash import html, dcc, ctx
 except Exception:
@@ -5,6 +6,7 @@ except Exception:
     import dash_core_components as dcc
     from dash import callback_context as ctx
 from dash.dependencies import Input, Output, State, ALL
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 import json
@@ -16,10 +18,11 @@ from datetime import datetime
 import copy
 import pandas as pd
 
-from domain.geography import get_department_gps, get_department_soil
+from domain.geography import get_department_gps, get_department_soil, get_department_options
 from domain.scenario import build_scenario_from_ui
 from domain.socio_eco import (
     SEEDS,
+    CROP_PRICES,
     compute_seed_cost,
     compute_soil_preparation_cost,
     compute_labor_cost,
@@ -618,16 +621,39 @@ def _build_forecast_results_view(scenarios, sim_results, messages):
     fig_water.update_layout(barmode="group", title="Bilan hydrique (mm)", yaxis_title="mm", margin=dict(l=20, r=20, t=50, b=20))
 
     fig_econ = go.Figure()
-    fig_econ.add_bar(name="Cout total", x=labels, y=cost_vals)
-    fig_econ.add_bar(name="Revenu brut", x=labels, y=revenue_vals)
-    fig_econ.add_bar(name="Marge", x=labels, y=margin_vals)
+    fig_econ.add_bar(name="Cout total (FCFA/ha)", x=labels, y=cost_vals, marker_color="#e07b54")
+    fig_econ.add_bar(name="Revenu brut (FCFA/ha)", x=labels, y=revenue_vals, marker_color="#5aab61")
+    fig_econ.add_bar(name="Benefice Net (FCFA/ha)", x=labels, y=margin_vals, marker_color="#2f7a4b")
     fig_econ.update_layout(
         barmode="group",
         title="Lecture economique (FCFA/ha)",
         yaxis_title="FCFA/ha",
-        yaxis_tickformat=".0f",
-        margin=dict(l=20, r=20, t=50, b=20),
+        yaxis_tickformat=",.0f",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=20, r=20, t=70, b=20),
     )
+
+    # Cartes bénéfice net par scénario
+    benefice_cards = []
+    for lbl, rev, cost, margin in zip(labels, revenue_vals, cost_vals, margin_vals):
+        color = "success" if margin > 0 else ("warning" if margin == 0 else "danger")
+        benefice_cards.append(
+            dbc.Col(
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6(lbl, className="card-title mb-1"),
+                        html.P([html.Strong("Revenu brut: "), f"{rev:,.0f} FCFA"], className="mb-0 small"),
+                        html.P([html.Strong("Cout total: "), f"{cost:,.0f} FCFA"], className="mb-0 small"),
+                        html.Hr(className="my-1"),
+                        html.P(
+                            [html.Strong("Benefice Net: "), f"{margin:+,.0f} FCFA/ha"],
+                            className=f"mb-0 fw-bold text-{'success' if margin > 0 else ('warning' if margin == 0 else 'danger')}",
+                        ),
+                    ])
+                ], color=color, outline=True),
+                md=4, className="mb-2"
+            )
+        )
 
     fig_unc = go.Figure()
     fig_unc.add_bar(name="P20", x=labels, y=p20_vals)
@@ -682,7 +708,14 @@ def _build_forecast_results_view(scenarios, sim_results, messages):
             dbc.Alert(html.Ul([html.Li(x) for x in metric_lines]), color="secondary", className="mt-2"),
             html.P(f"Total: {len(scenarios)} | Succes: {n_success} | Vides: {n_empty} | Erreurs: {n_error}"),
             dbc.Row([dbc.Col(dcc.Graph(figure=fig_agro), md=6), dbc.Col(dcc.Graph(figure=fig_water), md=6)]),
-            dbc.Row([dbc.Col(dcc.Graph(figure=fig_econ), md=6), dbc.Col(dcc.Graph(figure=fig_unc), md=6)]),
+            dbc.Card([
+                dbc.CardHeader("Lecture economique — Benefice Net par scenario"),
+                dbc.CardBody([
+                    dbc.Row(benefice_cards),
+                    dcc.Graph(figure=fig_econ),
+                ]),
+            ], className="mt-3"),
+            dbc.Row([dbc.Col(dcc.Graph(figure=fig_unc), md=12)]),
         ]
     )
 
@@ -785,21 +818,22 @@ def register_forecast_callbacks(app):
     @app.callback(
         [
             Output("forecast-map", "center"),
-            Output("forecast-map", "zoom"),
             Output("forecast-dept-marker", "position"),
             Output("forecast-dept-geojson", "data"),
             Output("forecast-soil-type", "options"),
             Output("forecast-soil-type", "value"),
             Output("forecast-dept-tooltip", "children"),
+            Output("forecast-dept-popup", "children"),
         ],
         Input("forecast-department", "value"),
     )
     def update_forecast_map_and_soil(dept_name):
         if not dept_name:
-            return [14.15, -16.07], 4, [14.15, -16.07], None, [], None, "Departement"
+            return [14.15, -16.07], [14.15, -16.07], None, [], None, "Département", []
         lat, lon = get_department_gps(dept_name)
         soil = get_department_soil(dept_name) or "-"
         geojson = None
+        region = ""
         try:
             with open(GEOJSON_PATH, encoding="utf-8") as f:
                 geo = json.load(f)
@@ -816,17 +850,30 @@ def register_forecast_callbacks(app):
                 )
                 if str(name).lower().replace("-", " ").strip() == target:
                     geojson = {"type": "FeatureCollection", "features": [ft]}
+                    region = props.get("region", "")
                     break
         except Exception:
             geojson = None
+
+        popup_content = [
+            html.Strong(dept_name, style={"fontSize": "15px"}),
+            html.Hr(style={"margin": "4px 0"}),
+            html.Span(f"Région : {region}") if region else None,
+            html.Br() if region else None,
+            html.Span(f"Sol : {soil}"),
+            html.Br(),
+            html.Span(f"GPS : {lat:.3f}°N, {abs(lon):.3f}°O", style={"color": "#888", "fontSize": "11px"}),
+        ]
+        popup_content = [c for c in popup_content if c is not None]
+
         return (
             [lat, lon],
-            4,
             [lat, lon],
             geojson,
             [{"label": soil, "value": soil}],
             soil,
-            f"{dept_name}",
+            dept_name,
+            popup_content,
         )
 
     @app.callback(Output("forecast-fertilization-block", "style"), Input("forecast-fertilization", "value"))
@@ -865,10 +912,28 @@ def register_forecast_callbacks(app):
             Output("forecast-post-harvest", "value"),
             Output("forecast-labor-type", "value"),
         ],
-        Input("forecast-reset-scenarios", "n_clicks"),
+        [
+            Input("forecast-reset-scenarios", "n_clicks"),
+            Input("forecast-all-depts-geojson", "clickData"),
+        ],
         prevent_initial_call=True,
     )
-    def reset_forecast_ui(_reset):
+    def reset_forecast_ui(_reset, click_data):
+        trig = get_triggered_id()
+        if trig == "forecast-all-depts-geojson":
+            if not click_data:
+                raise PreventUpdate
+            props = click_data.get("properties", {})
+            name = props.get("NAME") or props.get("name") or props.get("ADM2_FR") or ""
+            if not name:
+                raise PreventUpdate
+            valid = {opt["value"].lower(): opt["value"] for opt in get_department_options()}
+            result = valid.get(name.lower())
+            if not result:
+                raise PreventUpdate
+            _nu = dash.no_update
+            return (result, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu)
+        # Reset complet
         return (
             "Kaolack",      # department
             "ML",           # crop
@@ -959,6 +1024,14 @@ def register_forecast_callbacks(app):
     def seed_defaults(seed_type):
         d = SEEDS.get(seed_type, {})
         return d.get("qty", 0), d.get("price", 0)
+
+    @app.callback(
+        Output("forecast-crop-price", "value"),
+        Input("forecast-crop", "value"),
+    )
+    def update_forecast_default_crop_price(crop):
+        """Initialise le prix de vente selon la culture selectionnee"""
+        return CROP_PRICES.get(crop, 175)
 
     @app.callback(
         Output("forecast-prep-sol-cost", "value"),
@@ -1183,11 +1256,13 @@ def register_forecast_callbacks(app):
             State("forecast-irrig-cost", "value"),
             State("forecast-total-cost", "value"),
             State("forecast-toggle-socio", "n_clicks"),
+            State("forecast-crop-price", "value"),
         ],
         prevent_initial_call=True,
     )
     def add_scenario(n_add, n_reset, import_contents, store, import_filename, dept, crop, cycle, simulation_mode, planting_date, target_year,
-                     downscaling_method, realizations, fert, fert_plan, irrig, irrig_plan, fert_cost, irrig_cost, total_cost, socio_clicks):
+                     downscaling_method, realizations, fert, fert_plan, irrig, irrig_plan, fert_cost, irrig_cost, total_cost, socio_clicks,
+                     crop_price_ui):
         store = store or []
         trig = get_triggered_id()
         if trig == "forecast-reset-scenarios":
@@ -1232,7 +1307,7 @@ def register_forecast_callbacks(app):
             irrigation=irrig_enabled,
             irrigation_plan=(irrig_plan or []) if irrig_method == "MANUAL" else [],
             costs={
-                "CropPrice": 200,
+                "CropPrice": crop_price_ui or CROP_PRICES.get(crop, 175),
                 "NFertCost": fert_cost or 0,
                 "SeedCost": 0,
                 "IrrigCost": irrig_cost or 0,

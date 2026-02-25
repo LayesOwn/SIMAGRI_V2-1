@@ -3,6 +3,7 @@
 # Callbacks Dash – SIMAGRI v2
 # ==========================================================
 
+import dash
 try:
     from dash import html, dcc, ctx
 except Exception:
@@ -10,6 +11,7 @@ except Exception:
     import dash_core_components as dcc
     from dash import callback_context as ctx
 from dash.dependencies import Input, Output, State, ALL
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import json
 import csv
@@ -34,6 +36,7 @@ from domain.fertilisation import (
 )
 from domain.socio_eco import (
     SEEDS,
+    CROP_PRICES,
     compute_seed_cost,
     compute_soil_preparation_cost,
     compute_labor_cost,
@@ -629,16 +632,39 @@ def build_simulation_output(scenarios, sim_results, messages):
     fig_water.update_layout(barmode="group", title="Bilan hydrique (mm)", yaxis_title="mm", margin=dict(l=20, r=20, t=50, b=20))
 
     fig_econ = go.Figure()
-    fig_econ.add_bar(name="Cout total", x=labels, y=cost_vals)
-    fig_econ.add_bar(name="Revenu brut", x=labels, y=revenue_vals)
-    fig_econ.add_bar(name="Marge", x=labels, y=margin_vals)
+    fig_econ.add_bar(name="Cout total (FCFA/ha)", x=labels, y=cost_vals, marker_color="#e07b54")
+    fig_econ.add_bar(name="Revenu brut (FCFA/ha)", x=labels, y=revenue_vals, marker_color="#5aab61")
+    fig_econ.add_bar(name="Benefice Net (FCFA/ha)", x=labels, y=margin_vals, marker_color="#2f7a4b")
     fig_econ.update_layout(
         barmode="group",
         title="Lecture economique (FCFA/ha)",
         yaxis_title="FCFA/ha",
-        yaxis_tickformat=".0f",
-        margin=dict(l=20, r=20, t=50, b=20),
+        yaxis_tickformat=",.0f",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        margin=dict(l=20, r=20, t=70, b=20),
     )
+
+    # Cartes bénéfice net par scénario
+    benefice_cards = []
+    for lbl, rev, cost, margin in zip(labels, revenue_vals, cost_vals, margin_vals):
+        color = "success" if margin > 0 else ("warning" if margin == 0 else "danger")
+        benefice_cards.append(
+            dbc.Col(
+                dbc.Card([
+                    dbc.CardBody([
+                        html.H6(lbl, className="card-title mb-1"),
+                        html.P([html.Strong("Revenu brut: "), f"{rev:,.0f} FCFA"], className="mb-0 small"),
+                        html.P([html.Strong("Cout total: "), f"{cost:,.0f} FCFA"], className="mb-0 small"),
+                        html.Hr(className="my-1"),
+                        html.P(
+                            [html.Strong("Benefice Net: "), f"{margin:+,.0f} FCFA/ha"],
+                            className=f"mb-0 fw-bold text-{'success' if margin > 0 else ('warning' if margin == 0 else 'danger')}",
+                        ),
+                    ])
+                ], color=color, outline=True),
+                md=4, className="mb-2"
+            )
+        )
 
     fig_hist = go.Figure()
     for sid, h in histories:
@@ -694,9 +720,13 @@ def build_simulation_output(scenarios, sim_results, messages):
             dbc.Col(dcc.Graph(figure=fig_agro), md=6),
             dbc.Col(dcc.Graph(figure=fig_water), md=6),
         ]),
-        dbc.Row([
-            dbc.Col(dcc.Graph(figure=fig_econ), md=12),
-        ]),
+        dbc.Card([
+            dbc.CardHeader("Lecture economique — Benefice Net par scenario"),
+            dbc.CardBody([
+                dbc.Row(benefice_cards),
+                dcc.Graph(figure=fig_econ),
+            ]),
+        ], className="mt-3"),
         dbc.Row([
             dbc.Col(dcc.Graph(figure=fig_hist), md=12),
         ]),
@@ -801,32 +831,27 @@ def register_callbacks(app):
     @app.callback(
         [
             Output("map", "center"),
-            Output("map", "zoom"),
             Output("dept-marker", "position"),
             Output("dept-geojson", "data"),
             Output("soil_type", "value"),
             Output("dept-tooltip", "children"),
+            Output("dept-popup", "children"),
         ],
         Input("department", "value"),
     )
     def update_map_and_soil(dept_name):
         """
-        Met à jour la carte, le marqueur et le type de sol
-        en fonction du département sélectionné
+        Met à jour la carte, le marqueur, le type de sol,
+        le tooltip (survol) et le popup (clic) du département.
         """
-
-        # 🔒 Sécurité
         if not dept_name:
-            return [14.15, -16.07], 4, [14.15, -16.07], None, None, "Departement"
+            return [14.15, -16.07], [14.15, -16.07], None, None, "Département", []
 
-        # 📍 GPS
         lat, lon = get_department_gps(dept_name)
-
-        # 🌱 Type de sol
         soil = get_department_soil(dept_name)
 
-        # 🗺️ Charger GeoJSON
         geojson = None
+        region = ""
         try:
             with open(GEOJSON_PATH, encoding="utf-8") as f:
                 geo = json.load(f)
@@ -843,25 +868,34 @@ def register_callbacks(app):
                 )
                 if _norm_name(name) == target:
                     feature = f
+                    region = f["properties"].get("region", "")
                     break
 
             if feature:
-                geojson = {
-                    "type": "FeatureCollection",
-                    "features": [feature]
-                }
+                geojson = {"type": "FeatureCollection", "features": [feature]}
 
         except Exception as e:
             print(f"⚠️ Erreur chargement GeoJSON : {e}")
             geojson = None
 
+        popup_content = [
+            html.Strong(dept_name, style={"fontSize": "15px"}),
+            html.Hr(style={"margin": "4px 0"}),
+            html.Span(f"Région : {region}") if region else None,
+            html.Br() if region else None,
+            html.Span(f"Sol : {soil or 'N/A'}"),
+            html.Br(),
+            html.Span(f"GPS : {lat:.3f}°N, {abs(lon):.3f}°O", style={"color": "#888", "fontSize": "11px"}),
+        ]
+        popup_content = [c for c in popup_content if c is not None]
+
         return (
-            [lat, lon],   # center
-            4,            # zoom
-            [lat, lon],   # marker
-            geojson,      # contour département
-            soil,         # type de sol
-            f"{dept_name}",
+            [lat, lon],
+            [lat, lon],
+            geojson,
+            soil,
+            dept_name,
+            popup_content,
         )
 
     # ======================================================
@@ -910,11 +944,28 @@ def register_callbacks(app):
             Output("post_harvest", "value"),
             Output("labor_type", "value"),
         ],
-        Input("reset_scenarios", "n_clicks"),
+        [
+            Input("reset_scenarios", "n_clicks"),
+            Input("all-depts-geojson", "clickData"),
+        ],
         prevent_initial_call=True,
     )
-    def reset_main_ui(_reset):
-        year_now = datetime.now().year
+    def reset_main_ui(_reset, click_data):
+        trig = get_triggered_id()
+        if trig == "all-depts-geojson":
+            if not click_data:
+                raise PreventUpdate
+            props = click_data.get("properties", {})
+            name = props.get("NAME") or props.get("name") or props.get("ADM2_FR") or ""
+            if not name:
+                raise PreventUpdate
+            valid = {opt["value"].lower(): opt["value"] for opt in get_department_options()}
+            result = valid.get(name.lower())
+            if not result:
+                raise PreventUpdate
+            _nu = dash.no_update
+            return (result, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu, _nu)
+        # Reset complet
         return (
             "Kaolack",     # department
             "ML",          # crop
@@ -1119,6 +1170,15 @@ def register_callbacks(app):
     # ======================================================
     # 💰 SOCIO-ÉCONOMIE
     # ======================================================
+
+    @app.callback(
+        Output("crop-price", "value"),
+        Input("crop", "value"),
+    )
+    def update_default_crop_price(crop):
+        """Initialise le prix de vente selon la culture selectionnee"""
+        return CROP_PRICES.get(crop, 175)
+
     @app.callback(
         Output("prep_sol_cost", "value"),
         [
@@ -1435,6 +1495,7 @@ def register_callbacks(app):
         State("total_cost", "value"),
         State("toggle_socio", "n_clicks"),
         State("simulation_mode", "value"),
+        State("crop-price", "value"),
         prevent_initial_call=True,
     )
     def add_scenario(
@@ -1459,6 +1520,7 @@ def register_callbacks(app):
         total_cost,
         toggle_socio_clicks,
         simulation_mode,
+        crop_price_ui,
     ):
         """
         Ajoute un nouveau scénario aux scénarios stockés
@@ -1522,7 +1584,7 @@ def register_callbacks(app):
             irrigation=irrig_enabled,
             irrigation_plan=(irrigation_plan or []) if irrig_method == "MANUAL" else [],
             costs={
-                "CropPrice": 200,
+                "CropPrice": crop_price_ui or CROP_PRICES.get(crop, 175),
                 "NFertCost": fert_cost or 0,
                 "SeedCost": 0,
                 "IrrigCost": irrig_cost or 0,

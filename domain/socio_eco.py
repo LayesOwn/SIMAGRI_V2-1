@@ -48,6 +48,14 @@ OTHER_COSTS = {
     "Divers": 3000,
 }
 
+# Prix de vente par defaut (FCFA/kg) par culture
+CROP_PRICES = {
+    "ML": 175,   # Mil
+    "SG": 150,   # Sorgho
+    "PN": 350,   # Arachide
+    "RI": 250,   # Riz
+}
+
 # ----------------------------------------------------------
 # 3️⃣ FONCTIONS DE CALCUL
 # ----------------------------------------------------------

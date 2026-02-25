@@ -10,6 +10,8 @@ except Exception:
     import dash_core_components as dcc
     import dash_table
 
+import json
+from pathlib import Path
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 from datetime import date
@@ -19,6 +21,14 @@ from domain.crop import get_crop_options
 from domain.geography import get_department_options
 from domain.socio_eco import POST_HARVEST, SEEDS
 
+_GEOJSON_PATH = Path(__file__).resolve().parents[1] / "data" / "geojson" / "senegal_departments.json"
+
+def _load_all_geojson():
+    try:
+        with open(_GEOJSON_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 current_year = datetime.datetime.now().year
 
@@ -260,6 +270,27 @@ def layout_forecast():
                                             ),
 
                                             html.Hr(),
+
+                                            # --- Prix de vente (toujours visible) ---
+                                            dbc.Row(
+                                                [
+                                                    dbc.Col(
+                                                        [
+                                                            dbc.Label("Prix de vente (FCFA/kg)"),
+                                                            dbc.Input(
+                                                                id="forecast-crop-price",
+                                                                type="number",
+                                                                value=175,
+                                                                min=0,
+                                                                step=5,
+                                                            ),
+                                                            dbc.FormText("Prix adapte a la culture — modifiable"),
+                                                        ],
+                                                        md=4,
+                                                    ),
+                                                ],
+                                                className="mb-2",
+                                            ),
 
                                             dbc.Alert(
                                                 id="forecast-flash",
@@ -606,39 +637,72 @@ def layout_forecast():
                         children=[
                             dbc.Card(
                                 [
-                                    dbc.CardHeader("Localisation du departement"),
+                                    dbc.CardHeader("Localisation du departement — cliquez sur la carte pour sélectionner"),
                                     dbc.CardBody(
                                         dl.Map(
                                             id="forecast-map",
                                             center=[14.15, -16.07],
-                                            zoom=4,
-                                            minZoom=4,
-                                            maxZoom=10,
-                                            maxBounds=[[12.0, -18.8], [17.4, -10.2]],
+                                            zoom=6,
+                                            minZoom=5,
+                                            maxZoom=12,
+                                            maxBounds=[[11.5, -18.5], [17.5, -10.5]],
                                             maxBoundsViscosity=1.0,
-                                            style={"width": "100%", "height": "500px"},
+                                            style={"width": "100%", "height": "75vh"},
                                             children=[
+                                                # Fond satellite Esri
                                                 dl.TileLayer(
-                                                    url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png",
-                                                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+                                                    url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+                                                    attribution="Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics",
+                                                    maxZoom=18,
                                                 ),
+                                                # Couche noms de villes et frontières
+                                                dl.TileLayer(
+                                                    url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+                                                    attribution="Labels &copy; Esri",
+                                                    opacity=0.85,
+                                                ),
+                                                # Tous les départements (fond, cliquable)
+                                                dl.GeoJSON(
+                                                    id="forecast-all-depts-geojson",
+                                                    data=_load_all_geojson(),
+                                                    options={
+                                                        "style": {
+                                                            "color": "#ffffff",
+                                                            "weight": 1.5,
+                                                            "fillColor": "#7fcdbb",
+                                                            "fillOpacity": 0.08,
+                                                        }
+                                                    },
+                                                    hoverStyle={"weight": 3, "color": "#ffe066", "fillOpacity": 0.25},
+                                                ),
+                                                # Département sélectionné (mis en évidence)
                                                 dl.GeoJSON(
                                                     id="forecast-dept-geojson",
                                                     options={
                                                         "style": {
-                                                            "color": "#2c7fb8",
+                                                            "color": "#ffe066",
                                                             "weight": 3,
-                                                            "fillColor": "#7fcdbb",
-                                                            "fillOpacity": 0.4,
+                                                            "fillColor": "#f4a261",
+                                                            "fillOpacity": 0.45,
                                                         }
                                                     },
                                                     zoomToBounds=True,
-                                                    hoverStyle={"weight": 5, "color": "#081d58"},
+                                                    hoverStyle={"weight": 5, "color": "#e76f51"},
                                                 ),
                                                 dl.Marker(
                                                     id="forecast-dept-marker",
                                                     position=[14.15, -16.07],
-                                                    children=dl.Tooltip(id="forecast-dept-tooltip", permanent=True, direction="top"),
+                                                    children=[
+                                                        dl.Tooltip(
+                                                            id="forecast-dept-tooltip",
+                                                            permanent=False,
+                                                            direction="top",
+                                                        ),
+                                                        dl.Popup(
+                                                            id="forecast-dept-popup",
+                                                            children=[],
+                                                        ),
+                                                    ],
                                                 ),
                                             ],
                                         )
