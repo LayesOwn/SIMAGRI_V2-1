@@ -3,7 +3,7 @@
 # Outil d'aide à la décision agricole basé sur DSSAT
 # ====================================================
 
-dash==1.20.0
+dash==2.15.0
 dash_bootstrap_components==0.12.2
 dash_core_components==1.16.0
 dash_html_components==1.1.3
@@ -11,12 +11,12 @@ dash-renderer==1.9.1
 dash-table==4.11.3
 dash-extensions==0.0.71
 dash_leaflet==0.1.9
-Flask==1.1.2
+Flask==3.1.3
 Flask-Compress==1.9.0
-future==0.18.2
-gunicorn==20.1.0
+future==1.0.0
+gunicorn==22.0.0
 pandas==1.0.5
-numpy==1.19.5
+numpy==1.22.0
 scipy==1.5.4
 plotly==4.14.3
 python-dateutil==2.8.1
